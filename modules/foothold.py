@@ -26,16 +26,17 @@ class FootholdModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Who am I? (Identity & Privileges)")
-            table.add_row("2", "What is this host? (Role Classification)")
-            table.add_row("3", "What can this host see? (Network Visibility)")
-            table.add_row("4", "Generate foothold report")
+            table.add_row("1", "Who am I? (Identity & Privileges) [APT-41: Discovery]")
+            table.add_row("2", "What is this host? (Role Classification) [APT-41: Discovery]")
+            table.add_row("3", "What can this host see? (Network Visibility) [APT-41: Discovery]")
+            table.add_row("4", "APT-41 Initial Access Techniques")
+            table.add_row("5", "Generate foothold report")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5'], default='0')
             
             if choice == '0':
                 break
@@ -46,13 +47,16 @@ class FootholdModule:
             elif choice == '3':
                 self._assess_network_visibility(console, session_data)
             elif choice == '4':
+                self._apt41_initial_access(console, session_data)
+            elif choice == '5':
                 self._generate_report(console, session_data)
             
             console.print()
     
     def _assess_identity(self, console: Console, session_data: dict):
-        """Assess current identity and privileges"""
-        console.print("\n[bold cyan]Identity & Privilege Assessment[/bold cyan]\n")
+        """Assess current identity and privileges - APT-41 TTP: Discovery"""
+        console.print("\n[bold cyan]Identity & Privilege Assessment[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1087.001 (Account Discovery: Local Account), T1087.002 (Account Discovery: Domain Account)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -63,6 +67,9 @@ class FootholdModule:
             ("whoami /priv", "Privileges"),
             ("net localgroup administrators", "Local admin members"),
             ("net user %USERNAME%", "User account details"),
+            ("net user", "All local users [APT-41]"),
+            ("net group /domain", "Domain groups [APT-41]"),
+            ("net group \"Domain Admins\" /domain", "Domain Admins [APT-41]"),
         ]
         
         table = Table(title="[bold]Recommended Commands[/bold]", box=box.ROUNDED)
@@ -115,12 +122,26 @@ class FootholdModule:
             else:
                 console.print(f"[red]Error:[/red] {stderr}")
             
+            # APT-41: Check for service accounts
+            exit_code, stdout, stderr = execute_cmd("net user", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Local users:[/green] Retrieved")
+                identity_data['local_users'] = stdout
+            
+            # APT-41: Domain account discovery
+            exit_code, stdout, stderr = execute_cmd("net group /domain", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Domain groups:[/green] Retrieved")
+                identity_data['domain_groups'] = stdout
+            
             session_data['identity'] = identity_data
             console.print("\n[green]✓ Identity data stored in session[/green]")
+            console.print("[dim]APT-41 Note: Focus on service accounts and domain admin memberships[/dim]")
     
     def _assess_host_role(self, console: Console, session_data: dict):
-        """Assess host role and classification"""
-        console.print("\n[bold cyan]Host Role Classification[/bold cyan]\n")
+        """Assess host role and classification - APT-41 TTP: Discovery"""
+        console.print("\n[bold cyan]Host Role Classification[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1082 (System Information Discovery), T1018 (Remote System Discovery)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -131,6 +152,10 @@ class FootholdModule:
             ("Get-Service | Where-Object Status -eq 'Running'", "Running services"),
             ("Get-Process | Select-Object ProcessName, Path", "Running processes"),
             ("Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion", "System info"),
+            ("systeminfo", "System information [APT-41]"),
+            ("Get-WmiObject Win32_ComputerSystem", "Computer system details [APT-41]"),
+            ("Get-WmiObject Win32_OperatingSystem", "OS version and details [APT-41]"),
+            ("Get-WmiObject Win32_Product", "Installed software [APT-41]"),
         ]
         
         table = Table(title="[bold]Host Role Checks[/bold]", box=box.ROUNDED)
@@ -201,12 +226,27 @@ class FootholdModule:
                     "Database Server", "Management Server", "Workstation", "Other"
                 ], default=role)
             
+            # APT-41: System information discovery
+            exit_code, stdout, stderr = execute_cmd("systeminfo", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]System information:[/green] Retrieved")
+                session_data['system_info'] = stdout[:500]  # Store first 500 chars
+            
+            # APT-41: Installed software discovery
+            ps_cmd = "Get-WmiObject Win32_Product | Select-Object -First 20 Name, Version, Vendor"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Installed software:[/green] Retrieved")
+                session_data['installed_software'] = stdout
+            
             session_data['host_role'] = role
             console.print(f"\n[green]✓ Host classified as: {role}[/green]")
+            console.print("[dim]APT-41 Note: Identify high-value targets (DCs, backup servers, management systems)[/dim]")
     
     def _assess_network_visibility(self, console: Console, session_data: dict):
-        """Assess network visibility from foothold"""
-        console.print("\n[bold cyan]Network Visibility Assessment[/bold cyan]\n")
+        """Assess network visibility from foothold - APT-41 TTP: Discovery"""
+        console.print("\n[bold cyan]Network Visibility Assessment[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1018 (Remote System Discovery), T1046 (Network Service Scanning)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -218,6 +258,10 @@ class FootholdModule:
             ("arp -a", "ARP cache"),
             ("nslookup <domain>", "DNS resolution"),
             ("Test-NetConnection -ComputerName <target> -Port <port>", "Port connectivity"),
+            ("net view /domain", "Domain network discovery [APT-41]"),
+            ("net view /domain:<domain>", "Domain computer list [APT-41]"),
+            ("nltest /dclist:<domain>", "Domain controller discovery [APT-41]"),
+            ("for /L %i in (1,1,254) do @ping -n 1 -w 100 192.168.1.%i", "Network scanning [APT-41]"),
         ]
         
         table = Table(title="[bold]Network Discovery Commands[/bold]", box=box.ROUNDED)
@@ -294,8 +338,21 @@ class FootholdModule:
             if lab_use == 1:
                 console.print("\n[yellow]LAB MODE: Only local IP ranges shown[/yellow]")
             
+            # APT-41: Domain network discovery
+            exit_code, stdout, stderr = execute_cmd("net view /domain", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Domain networks:[/green] Retrieved")
+                network_data['domains'] = stdout
+            
+            # APT-41: Domain controller discovery
+            exit_code, stdout, stderr = execute_cmd("nltest /dclist:", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Domain controllers:[/green] Retrieved")
+                network_data['domain_controllers'] = stdout
+            
             session_data['network'] = network_data
             console.print("\n[green]✓ Network data stored[/green]")
+            console.print("[dim]APT-41 Note: Prioritize DCs, file servers, and management systems[/dim]")
     
     def _generate_report(self, console: Console, session_data: dict):
         """Generate foothold assessment report"""
@@ -323,3 +380,89 @@ class FootholdModule:
         
         panel = Panel("\n".join(report), title="Report", border_style="green")
         console.print(panel)
+    
+    def _apt41_initial_access(self, console: Console, session_data: dict):
+        """APT-41 Initial Access Techniques"""
+        console.print("\n[bold cyan]APT-41 Initial Access Techniques[/bold cyan]")
+        console.print("[dim]MITRE ATT&CK: T1195 (Supply Chain Compromise), T1078 (Valid Accounts), T1071 (Application Layer Protocol)[/dim]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
+        techniques = {
+            "Supply Chain Attacks": [
+                "Compromise software update mechanisms",
+                "Infect legitimate software installers",
+                "Target software vendors and update servers",
+                "Use signed malicious binaries"
+            ],
+            "Public-Facing Application Exploitation": [
+                "Exploit web application vulnerabilities",
+                "SQL injection, XSS, RCE vulnerabilities",
+                "Target exposed management interfaces",
+                "Exploit unpatched services"
+            ],
+            "Spear-Phishing": [
+                "Targeted email campaigns",
+                "Malicious attachments (Office docs with macros)",
+                "Watering hole attacks",
+                "Social engineering"
+            ],
+            "Valid Accounts": [
+                "Use compromised credentials",
+                "Service account abuse",
+                "Default credentials",
+                "Credential reuse"
+            ]
+        }
+        
+        for technique, methods in techniques.items():
+            console.print(f"[bold]{technique}:[/bold]")
+            for method in methods:
+                console.print(f"  • {method}")
+            console.print()
+        
+        console.print("[bold]APT-41 Common Tools & Techniques:[/bold]")
+        tools = [
+            "Custom backdoors (BADSIGN, BADHATCH, etc.)",
+            "DLL sideloading with legitimate executables",
+            "PowerShell scripts for execution",
+            "WMI for persistence and execution",
+            "Scheduled tasks for persistence"
+        ]
+        
+        for tool in tools:
+            console.print(f"  • {tool}")
+        
+        console.print("\n[bold]Post-Initial Access:[/bold]")
+        post_access = [
+            "Establish persistence via scheduled tasks",
+            "Create WMI event subscriptions",
+            "Install backdoors via DLL sideloading",
+            "Disable security tools",
+            "Clear event logs"
+        ]
+        
+        for step in post_access:
+            console.print(f"  • {step}")
+        
+        if is_live or Confirm.ask("\n[bold]Check for APT-41 indicators?[/bold]", default=False):
+            console.print("\n[yellow]Checking for APT-41 indicators...[/yellow]\n")
+            
+            # Check for suspicious scheduled tasks
+            ps_cmd = "Get-ScheduledTask | Where-Object {$_.TaskName -like '*update*' -or $_.TaskName -like '*maintenance*'} | Select-Object TaskName, State, Actions"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Suspicious scheduled tasks:[/green]\n{stdout}")
+            
+            # Check for WMI event subscriptions
+            ps_cmd = "Get-WmiObject -Namespace root\\subscription -Class __EventFilter"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]WMI event subscriptions:[/green]\n{stdout}")
+            
+            # Check for DLL sideloading opportunities
+            ps_cmd = "Get-ChildItem -Path C:\\Windows\\System32 -Filter *.exe | Select-Object -First 10 Name"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Potential DLL sideloading targets:[/green]\n{stdout}")

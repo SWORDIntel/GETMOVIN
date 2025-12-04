@@ -25,17 +25,18 @@ class ConsolidationModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Strategic Objectives")
-            table.add_row("2", "Domain Controller Access")
-            table.add_row("3", "Persistence Mechanisms")
-            table.add_row("4", "Central Control Planes")
-            table.add_row("5", "Clean-up Considerations")
+            table.add_row("1", "Strategic Objectives [APT-41: Objectives]")
+            table.add_row("2", "Domain Controller Access [APT-41: Credential Access]")
+            table.add_row("3", "Persistence Mechanisms [APT-41: Persistence]")
+            table.add_row("4", "Central Control Planes [APT-41: Persistence]")
+            table.add_row("5", "Clean-up Considerations [APT-41: Defense Evasion]")
+            table.add_row("6", "APT-41 Persistence Techniques")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
             
             if choice == '0':
                 break
@@ -49,6 +50,8 @@ class ConsolidationModule:
                 self._control_planes(console, session_data)
             elif choice == '5':
                 self._cleanup(console, session_data)
+            elif choice == '6':
+                self._apt41_persistence(console, session_data)
             
             console.print()
     
@@ -149,8 +152,9 @@ class ConsolidationModule:
             console.print(f"  • {cmd}")
     
     def _persistence(self, console: Console, session_data: dict):
-        """Persistence mechanisms"""
-        console.print("\n[bold cyan]Persistence Mechanisms[/bold cyan]\n")
+        """Persistence mechanisms - APT-41 TTP: Persistence"""
+        console.print("\n[bold cyan]Persistence Mechanisms[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1053.005 (Scheduled Task), T1543.003 (Create/Modify System Process: Windows Service)[/dim]\n")
         
         persistence_methods = {
             "Scheduled Tasks": [
@@ -196,11 +200,24 @@ class ConsolidationModule:
                 console.print(f"  • {cmd}")
             console.print()
         
-        console.print("[bold]OPSEC Considerations:[/bold]")
+        console.print("\n[bold]APT-41 Persistence Preferences:[/bold]")
+        apt41_persist = [
+            "Scheduled tasks with legitimate names",
+            "WMI event subscriptions",
+            "DLL sideloading with signed binaries",
+            "Services with legitimate names",
+            "Registry run keys (less common)"
+        ]
+        
+        for method in apt41_persist:
+            console.print(f"  • [yellow]{method}[/yellow]")
+        
+        console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • Prefer persistence on management boxes")
         console.print("  • Use names that resemble legitimate services")
         console.print("  • Avoid excessive modification of endpoints")
         console.print("  • Prefer controlling central control planes")
+        console.print("  • APT-41 uses multiple persistence mechanisms for redundancy")
     
     def _control_planes(self, console: Console, session_data: dict):
         """Central control planes"""
@@ -293,6 +310,18 @@ class ConsolidationModule:
         for cmd in file_cmds:
             console.print(f"  • {cmd}")
         
+        console.print("\n[bold]APT-41 Clean-up Techniques:[/bold]")
+        apt41_cleanup = [
+            "Clear event logs after operations",
+            "Remove temporary files and scripts",
+            "Delete scheduled tasks after use",
+            "Remove services after backdoor deployment",
+            "Clean registry entries"
+        ]
+        
+        for technique in apt41_cleanup:
+            console.print(f"  • [yellow]{technique}[/yellow]")
+        
         console.print("\n[bold]OPSEC Best Practices:[/bold]")
         practices = [
             "Minimize artifacts from the start",
@@ -304,3 +333,82 @@ class ConsolidationModule:
         
         for practice in practices:
             console.print(f"  • {practice}")
+    
+    def _apt41_persistence(self, console: Console, session_data: dict):
+        """APT-41 Specific Persistence Techniques"""
+        console.print("\n[bold cyan]APT-41 Persistence Techniques[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1053.005, T1543.003, T1547.001 (Boot/Logon Autostart Execution: Registry Run Keys)[/dim]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
+        console.print("[bold]APT-41 Primary Persistence Methods:[/bold]")
+        methods = {
+            "Scheduled Tasks": [
+                "Create tasks with names like 'Update', 'Maintenance', 'System'",
+                "Tasks execute PowerShell scripts",
+                "Tasks run DLL sideloading",
+                "Tasks execute from temp directories",
+                "High privileges (SYSTEM)"
+            ],
+            "WMI Event Subscriptions": [
+                "Create WMI event filters",
+                "Bind to event consumers",
+                "Execute on system events",
+                "Survives reboots",
+                "Less visible than scheduled tasks"
+            ],
+            "DLL Sideloading": [
+                "Place malicious DLL with legitimate executable",
+                "Uses signed executables",
+                "DLL loaded automatically",
+                "Persistence via scheduled task or service",
+                "Harder to detect"
+            ],
+            "Windows Services": [
+                "Create services with legitimate names",
+                "Services execute backdoors",
+                "Auto-start on boot",
+                "Run as SYSTEM",
+                "Less common than scheduled tasks"
+            ]
+        }
+        
+        for method, details in methods.items():
+            console.print(f"[bold]{method}:[/bold]")
+            for detail in details:
+                console.print(f"  • {detail}")
+            console.print()
+        
+        console.print("[bold]APT-41 Persistence Naming Conventions:[/bold]")
+        naming = [
+            "Use names similar to Windows system tasks",
+            "Include words like 'Update', 'Maintenance', 'System'",
+            "Avoid suspicious names",
+            "Match existing task/service patterns",
+            "Use legitimate-looking descriptions"
+        ]
+        
+        for convention in naming:
+            console.print(f"  • [yellow]{convention}[/yellow]")
+        
+        if is_live or Confirm.ask("\n[bold]Check for APT-41 persistence indicators?[/bold]", default=False):
+            console.print("\n[yellow]Checking for persistence indicators...[/yellow]\n")
+            
+            # Check scheduled tasks
+            ps_cmd = "Get-ScheduledTask | Where-Object {$_.TaskName -match 'update|maintenance|system'} | Select-Object TaskName, State, Actions"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Suspicious Scheduled Tasks:[/green]\n{stdout}")
+            
+            # Check WMI event subscriptions
+            ps_cmd = "Get-WmiObject -Namespace root\\subscription -Class __EventFilter | Select-Object Name, Query"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]WMI Event Filters:[/green]\n{stdout}")
+            
+            # Check services
+            ps_cmd = "Get-Service | Where-Object {$_.DisplayName -match 'update|maintenance|system'} | Select-Object Name, DisplayName, Status"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Suspicious Services:[/green]\n{stdout}")

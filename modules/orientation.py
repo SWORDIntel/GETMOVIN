@@ -26,17 +26,18 @@ class OrientationModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Identity & Privilege Mapping")
-            table.add_row("2", "Host Role Classification")
-            table.add_row("3", "Network Visibility Assessment")
-            table.add_row("4", "Service Account Discovery")
-            table.add_row("5", "Scheduled Task Analysis")
+            table.add_row("1", "Identity & Privilege Mapping [APT-41: Discovery]")
+            table.add_row("2", "Host Role Classification [APT-41: Discovery]")
+            table.add_row("3", "Network Visibility Assessment [APT-41: Discovery]")
+            table.add_row("4", "Service Account Discovery [APT-41: Discovery]")
+            table.add_row("5", "Scheduled Task Analysis [APT-41: Persistence]")
+            table.add_row("6", "Security Software Discovery [APT-41: Defense Evasion]")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
             
             if choice == '0':
                 break
@@ -50,6 +51,8 @@ class OrientationModule:
                 self._service_accounts(console, session_data)
             elif choice == '5':
                 self._scheduled_tasks(console, session_data)
+            elif choice == '6':
+                self._security_software_discovery(console, session_data)
             
             console.print()
     
@@ -240,6 +243,34 @@ class OrientationModule:
         for target in targets:
             console.print(f"  • {target}")
         
+        console.print("\n[bold]APT-41 Service Account Targeting:[/bold]")
+        apt41_targets = [
+            "Service accounts with domain admin privileges",
+            "Service accounts with unconstrained delegation",
+            "Service accounts running on multiple systems",
+            "Service accounts with weak passwords",
+            "GMSA (Group Managed Service Accounts)"
+        ]
+        
+        for target in apt41_targets:
+            console.print(f"  • [yellow]{target}[/yellow]")
+        
+        if is_live or Confirm.ask("\n[bold]Discover service accounts?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing discovery...[/yellow]\n")
+            
+            ps_cmd = "Get-WmiObject Win32_Service | Where-Object {$_.StartName -like '*@*'} | Select-Object -First 20 Name, StartName, State"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Domain Service Accounts:[/green]\n{stdout}")
+            
+            # Check for GMSA
+            ps_cmd = "Get-ADServiceAccount -Filter * | Select-Object Name, DistinguishedName"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]GMSA Accounts:[/green]\n{stdout}")
+            else:
+                console.print("[dim]GMSA check requires AD module[/dim]")
+        
         if is_live or Confirm.ask("\n[bold]Discover service accounts?[/bold]", default=is_live):
             console.print("\n[yellow]Executing discovery...[/yellow]\n")
             
@@ -251,8 +282,9 @@ class OrientationModule:
                 console.print(f"[red]Error:[/red] {stderr}")
     
     def _scheduled_tasks(self, console: Console, session_data: dict):
-        """Analyze scheduled tasks"""
-        console.print("\n[bold cyan]Scheduled Task Analysis[/bold cyan]\n")
+        """Analyze scheduled tasks - APT-41 TTP: Persistence"""
+        console.print("\n[bold cyan]Scheduled Task Analysis[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1053.005 (Scheduled Task/Job: Scheduled Task), T1053.003 (Cron)[/dim]\n")
         
         commands = [
             ("Get-ScheduledTask | Get-ScheduledTaskInfo", "All scheduled tasks"),
@@ -281,3 +313,103 @@ class OrientationModule:
         
         for indicator in indicators:
             console.print(f"  • {indicator}")
+    
+    def _security_software_discovery(self, console: Console, session_data: dict):
+        """Security software discovery - APT-41 TTP: Defense Evasion"""
+        console.print("\n[bold cyan]Security Software Discovery[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1518.001 (Software Discovery: Security Software Discovery)[/dim]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
+        console.print("[bold]APT-41 Security Software Discovery Techniques:[/bold]")
+        techniques = [
+            "Check for antivirus products",
+            "Identify security monitoring tools",
+            "Detect EDR/XDR solutions",
+            "Find firewall and network security tools",
+            "Locate logging and SIEM agents"
+        ]
+        
+        for technique in techniques:
+            console.print(f"  • {technique}")
+        
+        console.print("\n[bold]Discovery Commands:[/bold]")
+        commands = [
+            ("Get-WmiObject -Namespace root\\SecurityCenter2 -Class AntiVirusProduct", "Antivirus products"),
+            ("Get-Process | Where-Object {$_.ProcessName -like '*av*' -or $_.ProcessName -like '*defender*'}", "Security processes"),
+            ("Get-Service | Where-Object {$_.DisplayName -like '*antivirus*' -or $_.DisplayName -like '*security*'}", "Security services"),
+            ("Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Where-Object {$_.DisplayName -like '*antivirus*'}", "Installed security software"),
+        ]
+        
+        table = Table(title="[bold]Security Software Discovery[/bold]", box=box.ROUNDED)
+        table.add_column("Command", style="cyan")
+        table.add_column("Purpose", style="white")
+        
+        for cmd, purpose in commands:
+            table.add_row(cmd, purpose)
+        
+        console.print(table)
+        console.print()
+        
+        console.print("[bold]APT-41 Defense Evasion After Discovery:[/bold]")
+        evasion = [
+            "Disable security tools",
+            "Uninstall antivirus",
+            "Modify security tool configurations",
+            "Kill security processes",
+            "Exclude directories from scanning"
+        ]
+        
+        for method in evasion:
+            console.print(f"  • [yellow]{method}[/yellow]")
+        
+        if is_live or Confirm.ask("\n[bold]Discover security software?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing discovery...[/yellow]\n")
+            
+            # Check for antivirus
+            ps_cmd = "Get-WmiObject -Namespace root\\SecurityCenter2 -Class AntiVirusProduct -ErrorAction SilentlyContinue | Select-Object displayName, productState"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0 and stdout.strip():
+                console.print(f"[green]Antivirus Products:[/green]\n{stdout}")
+            else:
+                console.print("[dim]No antivirus products found via WMI[/dim]")
+            
+            # Check for security processes
+            ps_cmd = "Get-Process | Where-Object {$_.ProcessName -match 'av|defender|security|firewall|edr|xdr'} | Select-Object ProcessName, Id, Path"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Security Processes:[/green]\n{stdout}")
+            
+            # Check for security services
+            ps_cmd = "Get-Service | Where-Object {$_.DisplayName -match 'antivirus|security|defender|firewall'} | Select-Object Name, DisplayName, Status"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Security Services:[/green]\n{stdout}")
+        
+        console.print("\n[bold]APT-41 Scheduled Task Patterns:[/bold]")
+        apt41_patterns = [
+            "Tasks named like 'Update', 'Maintenance', 'System'",
+            "Tasks running PowerShell scripts from temp directories",
+            "Tasks executing DLL sideloading",
+            "Tasks with high privileges",
+            "Tasks running as SYSTEM or service accounts"
+        ]
+        
+        for pattern in apt41_patterns:
+            console.print(f"  • [yellow]{pattern}[/yellow]")
+        
+        if is_live or Confirm.ask("\n[bold]Analyze scheduled tasks?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing analysis...[/yellow]\n")
+            
+            # Check for suspicious tasks
+            ps_cmd = "Get-ScheduledTask | Get-ScheduledTaskInfo | Where-Object {$_.LastRunTime -gt (Get-Date).AddDays(-7)} | Select-Object TaskName, State, LastRunTime, NextRunTime"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Recent scheduled tasks:[/green]\n{stdout}")
+            
+            # Check tasks with PowerShell
+            ps_cmd = "Get-ScheduledTask | Select-Object TaskName, Actions | Where-Object {$_.Actions.Execute -like '*powershell*'}"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]PowerShell-based tasks:[/green]\n{stdout}")

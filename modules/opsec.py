@@ -5,6 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
+from modules.utils import execute_powershell
 
 
 class OPSECModule:
@@ -25,18 +26,19 @@ class OPSECModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Tool Selection & Native Binaries")
-            table.add_row("2", "Detection Evasion")
-            table.add_row("3", "Logging & Monitoring Avoidance")
-            table.add_row("4", "Behavioral Blending")
-            table.add_row("5", "Network OPSEC")
+            table.add_row("1", "Tool Selection & Native Binaries [APT-41: Defense Evasion]")
+            table.add_row("2", "Detection Evasion [APT-41: Defense Evasion]")
+            table.add_row("3", "Logging & Monitoring Avoidance [APT-41: Defense Evasion]")
+            table.add_row("4", "Behavioral Blending [APT-41: Defense Evasion]")
+            table.add_row("5", "Network OPSEC [APT-41: Command and Control]")
             table.add_row("6", "OPSEC Checklist")
+            table.add_row("7", "APT-41 Defense Evasion Techniques")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
             
             if choice == '0':
                 break
@@ -52,12 +54,15 @@ class OPSECModule:
                 self._network_opsec(console, session_data)
             elif choice == '6':
                 self._opsec_checklist(console, session_data)
+            elif choice == '7':
+                self._apt41_defense_evasion(console, session_data)
             
             console.print()
     
     def _tool_selection(self, console: Console, session_data: dict):
-        """Tool selection and native binaries"""
-        console.print("\n[bold cyan]Tool Selection & Native Binaries[/bold cyan]\n")
+        """Tool selection and native binaries - APT-41 TTP: Defense Evasion"""
+        console.print("\n[bold cyan]Tool Selection & Native Binaries[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1036 (Masquerading), T1027 (Obfuscated Files or Information)[/dim]\n")
         
         console.print("[bold]Prefer Native Windows Tools:[/bold]")
         native_tools = {
@@ -97,10 +102,23 @@ class OPSECModule:
         
         for practice in ps_practices:
             console.print(f"  • {practice}")
+        
+        console.print("\n[bold]APT-41 Tool Preferences:[/bold]")
+        apt41_tools = [
+            "Use legitimate Windows binaries",
+            "DLL sideloading with signed executables",
+            "PowerShell for execution",
+            "WMI for management and persistence",
+            "Built-in Windows services and scheduled tasks"
+        ]
+        
+        for tool in apt41_tools:
+            console.print(f"  • [yellow]{tool}[/yellow]")
     
     def _detection_evasion(self, console: Console, session_data: dict):
-        """Detection evasion techniques"""
-        console.print("\n[bold cyan]Detection Evasion[/bold cyan]\n")
+        """Detection evasion techniques - APT-41 TTP: Defense Evasion"""
+        console.print("\n[bold cyan]Detection Evasion[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1562.001 (Impair Defenses: Disable/Modify Tools), T1070 (Indicator Removal)[/dim]\n")
         
         evasion_techniques = {
             "Process Execution": [
@@ -136,8 +154,9 @@ class OPSECModule:
             console.print()
     
     def _logging_avoidance(self, console: Console, session_data: dict):
-        """Logging and monitoring avoidance"""
-        console.print("\n[bold cyan]Logging & Monitoring Avoidance[/bold cyan]\n")
+        """Logging and monitoring avoidance - APT-41 TTP: Defense Evasion"""
+        console.print("\n[bold cyan]Logging & Monitoring Avoidance[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1070.001 (Indicator Removal: Clear Windows Event Logs)[/dim]\n")
         
         console.print("[bold]Event Logs to Consider:[/bold]")
         logs = {
@@ -180,6 +199,18 @@ class OPSECModule:
         
         for strategy in strategies:
             console.print(f"  • {strategy}")
+        
+        console.print("\n[bold]APT-41 Log Clearing:[/bold]")
+        apt41_logs = [
+            "Clear Security event log",
+            "Clear System event log",
+            "Clear Application event log",
+            "Clear PowerShell logs",
+            "Delete specific event entries"
+        ]
+        
+        for log_type in apt41_logs:
+            console.print(f"  • [yellow]{log_type}[/yellow]")
     
     def _behavioral_blending(self, console: Console, session_data: dict):
         """Behavioral blending"""
@@ -308,3 +339,87 @@ class OPSECModule:
         
         for theme in themes:
             console.print(f"  • {theme}")
+    
+    def _apt41_defense_evasion(self, console: Console, session_data: dict):
+        """APT-41 Specific Defense Evasion Techniques"""
+        console.print("\n[bold cyan]APT-41 Defense Evasion Techniques[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1562 (Impair Defenses), T1070 (Indicator Removal), T1036 (Masquerading)[/dim]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
+        console.print("[bold]APT-41 Defense Evasion Methods:[/bold]")
+        methods = {
+            "Disable Security Tools": [
+                "Disable Windows Defender",
+                "Stop security services",
+                "Modify security tool configurations",
+                "Exclude directories from scanning",
+                "Kill security processes"
+            ],
+            "DLL Sideloading": [
+                "Use signed legitimate executables",
+                "Place malicious DLL in application directory",
+                "Bypass application whitelisting",
+                "Avoid detection by AV",
+                "Maintain code signing trust"
+            ],
+            "Process Injection": [
+                "Inject into legitimate processes",
+                "Hide malicious code in trusted processes",
+                "Bypass process-based detection",
+                "Use process hollowing",
+                "Inject into system processes"
+            ],
+            "Event Log Manipulation": [
+                "Clear event logs after operations",
+                "Delete specific log entries",
+                "Disable logging",
+                "Modify log retention policies",
+                "Use wevtutil to clear logs"
+            ],
+            "Masquerading": [
+                "Use legitimate file names",
+                "Place files in expected directories",
+                "Use signed binaries",
+                "Match legitimate process names",
+                "Use legitimate service names"
+            ]
+        }
+        
+        for method, techniques in methods.items():
+            console.print(f"[bold]{method}:[/bold]")
+            for technique in techniques:
+                console.print(f"  • {technique}")
+            console.print()
+        
+        console.print("[bold]APT-41 OPSEC Principles:[/bold]")
+        principles = [
+            "Use legitimate tools whenever possible",
+            "Minimize file drops",
+            "Use in-memory execution",
+            "Clear artifacts after operations",
+            "Blend into normal admin activity",
+            "Use signed binaries",
+            "Avoid custom malware when possible"
+        ]
+        
+        for principle in principles:
+            console.print(f"  • [yellow]{principle}[/yellow]")
+        
+        if is_live or Confirm.ask("\n[bold]Check for security tool status?[/bold]", default=False):
+            console.print("\n[yellow]Checking security tools...[/yellow]\n")
+            
+            # Check Windows Defender status
+            ps_cmd = "Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled, AntispywareEnabled"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Windows Defender Status:[/green]\n{stdout}")
+            else:
+                console.print("[dim]Windows Defender check failed (may not be available)[/dim]")
+            
+            # Check for security processes
+            ps_cmd = "Get-Process | Where-Object {$_.ProcessName -match 'defender|security|av|firewall'} | Select-Object ProcessName, Id"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Security Processes:[/green]\n{stdout}")

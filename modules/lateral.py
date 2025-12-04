@@ -26,18 +26,19 @@ class LateralModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "SMB/RPC-based Movement")
-            table.add_row("2", "WinRM / PowerShell Remoting")
-            table.add_row("3", "WMI-based Execution")
-            table.add_row("4", "RDP-based Pivoting")
-            table.add_row("5", "DCOM / COM-based Movement")
-            table.add_row("6", "SSH Tunneling & Port Forwarding")
+            table.add_row("1", "SMB/RPC-based Movement [APT-41: Lateral Movement]")
+            table.add_row("2", "WinRM / PowerShell Remoting [APT-41: Lateral Movement]")
+            table.add_row("3", "WMI-based Execution [APT-41: Lateral Movement]")
+            table.add_row("4", "RDP-based Pivoting [APT-41: Lateral Movement]")
+            table.add_row("5", "DCOM / COM-based Movement [APT-41: Lateral Movement]")
+            table.add_row("6", "SSH Tunneling & Port Forwarding [APT-41: Command and Control]")
+            table.add_row("7", "APT-41 Custom Tools & Techniques")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
             
             if choice == '0':
                 break
@@ -53,12 +54,15 @@ class LateralModule:
                 self._dcom_com(console, session_data)
             elif choice == '6':
                 self._ssh_tunneling(console, session_data)
+            elif choice == '7':
+                self._apt41_lateral_tools(console, session_data)
             
             console.print()
     
     def _smb_rpc(self, console: Console, session_data: dict):
-        """SMB/RPC-based lateral movement"""
-        console.print("\n[bold cyan]SMB/RPC-based Lateral Movement[/bold cyan]\n")
+        """SMB/RPC-based lateral movement - APT-41 TTP: Lateral Movement"""
+        console.print("\n[bold cyan]SMB/RPC-based Lateral Movement[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1021.002 (Remote Services: SMB/Windows Admin Shares)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -105,10 +109,23 @@ class LateralModule:
         for cmd in task_cmds:
             console.print(f"  • {cmd}")
         
+        console.print("\n[bold]APT-41 SMB/RPC Techniques:[/bold]")
+        apt41_techniques = [
+            "Use built-in Windows binaries (sc, wmic, schtasks)",
+            "Create services with legitimate names",
+            "Use scheduled tasks for execution",
+            "Copy files via administrative shares",
+            "Execute PowerShell scripts remotely"
+        ]
+        
+        for technique in apt41_techniques:
+            console.print(f"  • [yellow]{technique}[/yellow]")
+        
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • Use built-in Windows binaries (sc, wmic, schtasks)")
         console.print("  • Prefer service creation over direct process execution")
         console.print("  • Clean up artifacts after execution")
+        console.print("  • APT-41 uses legitimate admin tools to blend in")
         
         if is_live or Confirm.ask("\n[bold]Execute SMB/RPC command?[/bold]", default=False):
             target = Prompt.ask("Target hostname or IP")
@@ -138,8 +155,9 @@ class LateralModule:
                     console.print(f"[red]Error:[/red] {stderr}")
     
     def _winrm_psremoting(self, console: Console, session_data: dict):
-        """WinRM / PowerShell Remoting"""
-        console.print("\n[bold cyan]WinRM / PowerShell Remoting[/bold cyan]\n")
+        """WinRM / PowerShell Remoting - APT-41 TTP: Lateral Movement"""
+        console.print("\n[bold cyan]WinRM / PowerShell Remoting[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1021.003 (Remote Services: Distributed Component Object Model)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -184,10 +202,23 @@ class LateralModule:
         for cmd in enable_cmds:
             console.print(f"  • {cmd}")
         
+        console.print("\n[bold]APT-41 PowerShell Remoting:[/bold]")
+        apt41_ps = [
+            "Execute PowerShell scripts from memory",
+            "Use Invoke-Command for remote execution",
+            "Leverage existing PowerShell remoting sessions",
+            "Execute base64-encoded commands",
+            "Use legitimate PowerShell modules"
+        ]
+        
+        for technique in apt41_ps:
+            console.print(f"  • [yellow]{technique}[/yellow]")
+        
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • WinRM uses HTTPS (5986) by default - encrypted")
         console.print("  • Resembles legitimate admin automation")
         console.print("  • Can execute scripts without dropping files")
+        console.print("  • APT-41 uses PowerShell extensively for lateral movement")
         
         if is_live or Confirm.ask("\n[bold]Test WinRM connectivity?[/bold]", default=False):
             target = Prompt.ask("Target hostname or IP")
@@ -215,8 +246,9 @@ class LateralModule:
                     console.print(f"[red]Error:[/red] {stderr}")
     
     def _wmi_execution(self, console: Console, session_data: dict):
-        """WMI-based execution"""
-        console.print("\n[bold cyan]WMI-based Execution[/bold cyan]\n")
+        """WMI-based execution - APT-41 TTP: Lateral Movement & Persistence"""
+        console.print("\n[bold cyan]WMI-based Execution[/bold cyan]")
+        console.print("[dim]APT-41 TTP: T1047 (WMI), T1053.003 (Scheduled Task/Job: WMI)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -252,10 +284,23 @@ class LateralModule:
         for cmd in wmi_event_cmds:
             console.print(f"  • {cmd}")
         
+        console.print("\n[bold]APT-41 WMI Usage:[/bold]")
+        apt41_wmi = [
+            "WMI event subscriptions for persistence",
+            "Remote process creation via WMI",
+            "System inventory and discovery",
+            "WMI filters for GPO deployment",
+            "WMI-based lateral movement"
+        ]
+        
+        for usage in apt41_wmi:
+            console.print(f"  • [yellow]{usage}[/yellow]")
+        
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • WMI operates over ports commonly allowed for management")
         console.print("  • Useful for inventorying hosts remotely")
         console.print("  • Can be used where other remoting mechanisms unavailable")
+        console.print("  • APT-41 uses WMI for both execution and persistence")
         
         if is_live or Confirm.ask("\n[bold]Execute WMI query?[/bold]", default=False):
             target = Prompt.ask("Target hostname or IP")
