@@ -81,8 +81,6 @@ class WindowsPackager:
             'VERSION',
             'LICENSE',
             'README.md',
-            'QUICKSTART.md',
-            'CHANGELOG.md',
         ]
         
         for file in core_files:
@@ -136,12 +134,13 @@ class WindowsPackager:
             shutil.copytree(relay_src, relay_dst, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             print(f"  [✓] Copied relay/")
         
-        # Examples
-        examples_src = self.workspace_root / 'examples'
+        # Examples (now in docs/examples)
+        examples_src = self.workspace_root / 'docs' / 'examples'
         if examples_src.exists():
-            examples_dst = self.package_dir / 'examples'
+            examples_dst = self.package_dir / 'docs' / 'examples'
+            examples_dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(examples_src, examples_dst)
-            print(f"  [✓] Copied examples/")
+            print(f"  [✓] Copied docs/examples/")
     
     def _copy_offline_deps(self):
         """Copy offline dependencies directory if it exists"""
