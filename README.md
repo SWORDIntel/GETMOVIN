@@ -14,17 +14,19 @@ A unified Text User Interface (TUI) for Windows lateral movement simulation, des
 ## Modules
 
 1. **Foothold & Starting Point**: SSH foothold assessment, identity checks, host role classification
-   - APT-41 TTPs: Initial access techniques, supply chain attacks, discovery
+   - TTPs: T1078, T1550, T1021.004, T1087, T1018
 2. **Local Orientation**: Identity mapping, host classification, network visibility, service accounts
-   - APT-41 TTPs: Discovery, security software detection, scheduled task analysis
+   - TTPs: T1018, T1087, T1135, T1082
 3. **Identity Acquisition**: Credential harvesting, domain context, token extraction
-   - APT-41 TTPs: LSASS dumping, credential access, domain enumeration
+   - TTPs: T1003.001, T1003.002, T1059.001, T1550.002, T1550.003
 4. **Lateral Movement Channels**: SMB/RPC, WinRM, WMI, RDP, DCOM, SSH tunneling
-   - APT-41 TTPs: Custom tools (BADSIGN, BADHATCH), DLL sideloading, lateral movement patterns
+   - TTPs: T1021.002, T1021.006, T1021.001, T1569.002, T1047, T1053.005, T1570
 5. **Consolidation & Dominance**: Strategic objectives, DC access, persistence mechanisms
-   - APT-41 TTPs: Persistence techniques, WMI event subscriptions, scheduled tasks
+   - TTPs: T1053.005, T1543.003, T1053.003
 6. **OPSEC Considerations**: Tool selection, detection evasion, behavioral blending
-   - APT-41 TTPs: Defense evasion, log clearing, masquerading, DLL sideloading
+   - TTPs: Defense evasion, log clearing, masquerading
+7. **LLM Remote Agent**: Self-coding execution system with binary protocol
+   - Features: Remote command execution, code generation, binary protocol communication
 
 ## Installation
 
@@ -113,6 +115,67 @@ Each module includes specific MITRE ATT&CK technique IDs and context for referen
 ## Disclaimer
 
 This tool is for **authorized red team exercises and threat modeling only**. Unauthorized use is illegal and unethical. Use only on systems you own or have explicit written permission to test.
+
+## LLM Remote Agent Module
+
+The LLM Remote Agent module provides a self-coding execution system that can:
+
+- **Accept remote commands** from LLM clients via binary protocol
+- **Generate code** in Python, PowerShell, or Batch based on specifications
+- **Execute generated code** safely with sandboxing
+- **Communicate** over a custom 2-way binary protocol
+
+### Binary Protocol
+
+The protocol uses a structured binary format:
+- **Magic**: 4-byte identifier (0xAABBCCDD)
+- **Version**: 1-byte protocol version
+- **Type**: 1-byte message type
+- **Length**: 4-byte payload length (big-endian)
+- **Payload**: JSON-encoded message data
+
+### Message Types
+
+- `MSG_COMMAND` (0x01): Execute a command
+- `MSG_CODE_GENERATE` (0x02): Generate code from specification
+- `MSG_EXECUTE` (0x03): Execute generated code
+- `MSG_RESPONSE` (0x04): Response message
+- `MSG_ERROR` (0x05): Error message
+- `MSG_HEARTBEAT` (0x06): Keep-alive message
+
+### Safety Features
+
+- Pattern-based code validation
+- Dangerous operation blocking
+- Sandboxed execution environment
+- Temporary file management
+- Execution timeout protection
+
+### Usage Example
+
+```python
+from modules.llm_client import LLMAgentClient
+
+client = LLMAgentClient(host='localhost', port=8888)
+client.connect()
+
+# Generate code
+spec = {
+    'language': 'python',
+    'description': 'Print hello world',
+    'requirements': ['Print greeting'],
+    'imports': []
+}
+response = client.generate_code(spec)
+
+# Execute code
+exec_response = client.execute_code(
+    response['file_path'],
+    response['language']
+)
+```
+
+See `examples/llm_agent_example.py` for a complete example.
 
 ## License
 

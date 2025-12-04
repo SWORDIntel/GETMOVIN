@@ -22,6 +22,7 @@ from modules.identity import IdentityModule
 from modules.lateral import LateralModule
 from modules.consolidation import ConsolidationModule
 from modules.opsec import OPSECModule
+from modules.llm_agent import LLMAgentModule
 
 console = Console()
 
@@ -58,6 +59,7 @@ class LateralMovementTUI:
             '4': ('Lateral Movement Channels', LateralModule()),
             '5': ('Consolidation & Dominance', ConsolidationModule()),
             '6': ('OPSEC Considerations', OPSECModule()),
+            '7': ('LLM Remote Agent', LLMAgentModule()),
         }
         self.session_data = {
             'LAB_USE': LAB_USE,
@@ -96,7 +98,8 @@ class LateralMovementTUI:
             '3': 'Credential harvesting & domain context',
             '4': 'SMB/RPC, WinRM, WMI, RDP pivoting',
             '5': 'Strategic objectives & persistence',
-            '6': 'OPSEC best practices & evasion'
+            '6': 'OPSEC best practices & evasion',
+            '7': 'LLM remote agent with self-coding execution'
         }
         
         for key, (name, _) in self.modules.items():
@@ -116,7 +119,7 @@ class LateralMovementTUI:
             
             choice = Prompt.ask(
                 "[bold cyan]Select module[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6'],
+                choices=['0', '1', '2', '3', '4', '5', '6', '7'],
                 default='0'
             )
             
