@@ -143,13 +143,12 @@ The protocol uses a structured binary format:
 - `MSG_ERROR` (0x05): Error message
 - `MSG_HEARTBEAT` (0x06): Keep-alive message
 
-### Safety Features
+### Execution Features
 
-- Pattern-based code validation
-- Dangerous operation blocking
 - Sandboxed execution environment
 - Temporary file management
-- Execution timeout protection
+- Execution timeout protection (30 seconds)
+- Multi-threaded server architecture
 
 ### Usage Example
 

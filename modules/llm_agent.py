@@ -73,33 +73,12 @@ class BinaryProtocol:
 class CodeGenerator:
     """Code generation and execution engine"""
     
-    # Safety: Blocked dangerous operations
-    DANGEROUS_PATTERNS = [
-        'rm -rf', 'del /f /s /q', 'format', 'fdisk',
-        '__import__', 'eval(', 'exec(', 'compile(',
-        'subprocess', 'os.system', 'os.popen',
-        'Remove-Item -Recurse -Force', 'Format-Volume'
-    ]
-    
     def __init__(self, console: Console, session_data: dict):
         self.console = console
         self.session_data = session_data
         self.temp_dir = tempfile.mkdtemp(prefix='llm_agent_')
         self.execution_history = []
-        self.safety_enabled = True
         
-    def _check_safety(self, code: str) -> Tuple[bool, str]:
-        """Check if code contains dangerous patterns"""
-        if not self.safety_enabled:
-            return True, ""
-        
-        code_lower = code.lower()
-        for pattern in self.DANGEROUS_PATTERNS:
-            if pattern.lower() in code_lower:
-                return False, f"Dangerous pattern detected: {pattern}"
-        
-        return True, ""
-    
     def generate_code(self, spec: Dict[str, Any]) -> Tuple[str, str]:
         """
         Generate code based on specification
@@ -119,12 +98,6 @@ class CodeGenerator:
         requirements = spec.get('requirements', [])
         imports = spec.get('imports', [])
         
-        # Safety check on description
-        if self.safety_enabled:
-            safe, error = self._check_safety(description)
-            if not safe:
-                raise ValueError(f"Safety check failed: {error}")
-        
         # Generate code based on language
         if language == 'python':
             code = self._generate_python(description, requirements, imports)
@@ -141,12 +114,6 @@ class CodeGenerator:
             'powershell': '.ps1',
             'batch': '.bat'
         }.get(language, '.txt')
-        
-        # Safety check on generated code
-        if self.safety_enabled:
-            safe, error = self._check_safety(code)
-            if not safe:
-                raise ValueError(f"Safety check failed on generated code: {error}")
         
         file_path = os.path.join(self.temp_dir, f'generated_{len(self.execution_history)}{ext}')
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -253,18 +220,6 @@ class CodeGenerator:
         """
         args = args or []
         lab_use = self.session_data.get('LAB_USE', 0)
-        
-        # Safety check: Read and validate code before execution
-        if self.safety_enabled and os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    code_content = f.read()
-                
-                safe, error = self._check_safety(code_content)
-                if not safe:
-                    return 1, "", f"Safety check failed: {error}"
-            except Exception as e:
-                return 1, "", f"Safety check error: {e}"
         
         try:
             if language == 'python':
