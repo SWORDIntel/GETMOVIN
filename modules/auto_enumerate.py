@@ -24,6 +24,7 @@ from modules.utils import execute_cmd, execute_powershell, validate_target
 from modules.loghunter_integration import LogHunter, WindowsMoonwalk
 from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
+from modules.diagram_generator import DiagramGenerator
 
 
 class AutoEnumerator:
@@ -1700,27 +1701,78 @@ class AutoEnumerateModule:
         )
         
         if export_format != 'none':
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Create report directory structure: enumeration_reports/YYYY-MM-DD/machine_time/
+            report_base = Path('enumeration_reports')
+            date_str = datetime.now().strftime("%Y-%m-%d")
             
+            # Get machine identifier
+            try:
+                exit_code, stdout, stderr = execute_cmd("hostname", lab_use=self.lab_use)
+                if exit_code == 0:
+                    machine_name = stdout.strip().replace(' ', '_').replace('/', '_')
+                else:
+                    machine_name = "unknown"
+            except Exception:
+                machine_name = "unknown"
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_dir = report_base / date_str / f"{machine_name}_{timestamp}"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            
+            console.print(f"\n[cyan]Saving reports to:[/cyan] {report_dir}")
+            
+            # Generate diagrams
+            console.print("[cyan]Generating diagrams...[/cyan]")
+            diagram_gen = DiagramGenerator(enumeration_data)
+            diagrams = diagram_gen.generate_all_diagrams()
+            diagram_files = diagram_gen.save_diagrams(report_dir)
+            
+            for diagram_name, diagram_path in diagram_files.items():
+                console.print(f"[green]Diagram saved:[/green] {diagram_path.name}")
+            
+            # Save reports
             if export_format in ['text', 'all']:
                 text_report = report_gen.generate_text_report()
-                filename = f"enumeration_report_{timestamp}.txt"
+                filename = report_dir / f"enumeration_report_{timestamp}.txt"
                 with open(filename, 'w', encoding='utf-8') as f:
                     f.write(text_report)
-                console.print(f"[green]Text report saved:[/green] {filename}")
+                console.print(f"[green]Text report saved:[/green] {filename.name}")
             
             if export_format in ['json', 'all']:
                 json_report = report_gen.generate_json_report()
-                filename = f"enumeration_report_{timestamp}.json"
+                filename = report_dir / f"enumeration_report_{timestamp}.json"
                 with open(filename, 'w', encoding='utf-8') as f:
                     f.write(json_report)
-                console.print(f"[green]JSON report saved:[/green] {filename}")
+                console.print(f"[green]JSON report saved:[/green] {filename.name}")
             
             if export_format in ['html', 'all']:
                 html_report = report_gen.generate_html_report()
-                filename = f"enumeration_report_{timestamp}.html"
+                filename = report_dir / f"enumeration_report_{timestamp}.html"
                 with open(filename, 'w', encoding='utf-8') as f:
                     f.write(html_report)
-                console.print(f"[green]HTML report saved:[/green] {filename}")
+                console.print(f"[green]HTML report saved:[/green] {filename.name}")
+            
+            # Create index file with diagram references
+            index_content = []
+            index_content.append("# Enumeration Report Index\n")
+            index_content.append(f"**Generated:** {enumeration_data['timestamp']}\n")
+            index_content.append(f"**Machine:** {machine_name}\n")
+            index_content.append(f"**Date:** {date_str}\n\n")
+            index_content.append("## Reports\n")
+            index_content.append(f"- Text Report: `enumeration_report_{timestamp}.txt`\n")
+            index_content.append(f"- JSON Report: `enumeration_report_{timestamp}.json`\n")
+            index_content.append(f"- HTML Report: `enumeration_report_{timestamp}.html`\n\n")
+            index_content.append("## Diagrams\n")
+            index_content.append("All diagrams are in Mermaid format (.mmd). View them using:\n")
+            index_content.append("- [Mermaid Live Editor](https://mermaid.live)\n")
+            index_content.append("- VS Code with Mermaid extension\n")
+            index_content.append("- GitHub (renders automatically)\n\n")
+            for diagram_name, diagram_path in diagram_files.items():
+                index_content.append(f"- **{diagram_name.replace('_', ' ').title()}**: `{diagram_path.name}`\n")
+            
+            index_file = report_dir / "README.md"
+            with open(index_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(index_content))
+            console.print(f"[green]Index file saved:[/green] {index_file.name}")
         
         console.print("\n[green]Enumeration complete![/green]")

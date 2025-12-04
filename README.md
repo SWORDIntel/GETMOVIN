@@ -73,12 +73,15 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed quick start guide.
 ### Advanced Features
 
 - **Auto-Enumeration Mode**: Automated comprehensive enumeration with lateral movement
+- **Diagram Generation**: Automatic Mermaid diagram generation for MITRE ATT&CK flows, network topologies, and attack timelines
+- **Organized Report Storage**: All enumeration data stored in `enumeration_reports/` sorted by date and machine+time
 - **AI Remote Guidance**: Interactive, contextual help system
 - **Relay Service**: Secure relay architecture for CGNAT scenarios
 - **MEMSHADOW Protocol**: Custom binary protocol for efficient data transfer
 - **CNSA 2.0 Compliant TLS**: Military-grade security for relay communications
 - **Tor Support**: Hidden service support for relay endpoints
 - **Structured Logging**: JSON logging for security monitoring
+- **Comprehensive Testing**: End-to-end test harness with coverage reporting
 
 ## 📋 Table of Contents
 
@@ -462,6 +465,101 @@ Secure relay service for CGNAT scenarios:
 
 See [docs/remote_guided_relay.md](docs/remote_guided_relay.md) for relay architecture.
 
+## 📊 Auto-Enumeration & Reporting
+
+### Diagram Generation
+
+The auto-enumeration module automatically generates comprehensive Mermaid diagrams:
+
+- **MITRE ATT&CK Attack Flow**: Visual representation of attack progression through MITRE ATT&CK phases
+- **Network Topology**: Network diagram showing discovered hosts, lateral movement paths, and connections
+- **Lateral Movement Paths**: Detailed visualization of lateral movement sequences and methods
+- **Privilege Escalation Flow**: PE5 and other privilege escalation techniques visualization
+- **System Architecture**: Host-level architecture showing services, shares, and integrations
+- **Attack Timeline**: Gantt chart showing attack phases and timing
+
+All diagrams are saved in Mermaid format (`.mmd`) and can be viewed using:
+- [Mermaid Live Editor](https://mermaid.live)
+- VS Code with Mermaid extension
+- GitHub (renders automatically in markdown)
+
+### Report Storage Structure
+
+All enumeration reports are automatically organized in the `enumeration_reports/` directory:
+
+```
+enumeration_reports/
+├── YYYY-MM-DD/
+│   ├── machine-name_TIMESTAMP/
+│   │   ├── enumeration_report_TIMESTAMP.txt
+│   │   ├── enumeration_report_TIMESTAMP.json
+│   │   ├── enumeration_report_TIMESTAMP.html
+│   │   ├── mitre_attack_flow.mmd
+│   │   ├── network_topology.mmd
+│   │   ├── lateral_movement.mmd
+│   │   ├── privilege_escalation.mmd
+│   │   ├── system_architecture.mmd
+│   │   ├── attack_timeline.mmd
+│   │   └── README.md
+```
+
+Reports are sorted by:
+1. **Date** (YYYY-MM-DD format)
+2. **Machine name** + **Timestamp** (for multiple runs on same day)
+
+This organization makes it easy to:
+- Track enumeration history over time
+- Compare results across different machines
+- Review specific enumeration sessions
+- Share reports with team members
+
+## 🧪 Testing
+
+### Running Tests
+
+The project includes a comprehensive end-to-end test harness covering all modules:
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage report
+pytest tests/ -v --cov=modules --cov-report=html
+
+# Run specific test file
+pytest tests/test_all_modules.py -v
+
+# Run specific test class
+pytest tests/test_all_modules.py::TestDiagramGenerator -v
+```
+
+### Test Coverage
+
+Current test coverage includes:
+- ✅ All module initialization tests
+- ✅ Module execution tests (with mocked user input)
+- ✅ Auto-enumeration functionality
+- ✅ Report generation (text, JSON, HTML)
+- ✅ Diagram generation (all diagram types)
+- ✅ Utility functions
+- ✅ Error handling
+
+### Test Structure
+
+```
+tests/
+├── __init__.py
+├── test_all_modules.py      # End-to-end tests for all modules
+└── test_diagram_generator.py # Additional diagram generator tests
+```
+
+### Coverage Reports
+
+Coverage reports are generated in multiple formats:
+- **Terminal**: `--cov-report=term-missing`
+- **HTML**: `--cov-report=html` (view in `htmlcov/index.html`)
+- **XML**: `--cov-report=xml` (for CI/CD integration)
+
 ## 📚 Documentation
 
 ### Core Documentation
@@ -488,6 +586,7 @@ See [docs/remote_guided_relay.md](docs/remote_guided_relay.md) for relay archite
 - **[docs/PE5_UI_Integration.md](docs/PE5_UI_Integration.md)** - PE5 UI and guidance
 - **[docs/remote_guided_relay.md](docs/remote_guided_relay.md)** - Relay architecture
 - **[docs/Auto_Enumeration.md](docs/Auto_Enumeration.md)** - Auto-enumeration features
+- **[docs/Auto_Enumeration_Enhancements.md](docs/Auto_Enumeration_Enhancements.md)** - Diagram generation and report storage
 - **[docs/MADCert_Integration.md](docs/MADCert_Integration.md)** - MADCert integration
 - **[docs/LOLBins_Reference.md](docs/LOLBins_Reference.md)** - LOLBins database
 
@@ -635,10 +734,19 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and changes.
 - ✅ **PE5 Integration**: Complete
 - ✅ **Relay Service**: Complete
 - ✅ **Auto-Enumeration**: Complete
+- ✅ **Diagram Generation**: Complete (MITRE ATT&CK flows, network diagrams, timelines)
+- ✅ **Report Organization**: Complete (date/machine+time sorted storage)
+- ✅ **Test Harness**: Complete (end-to-end tests for all modules)
 - ✅ **Cross-Platform**: Complete
 - ✅ **Documentation**: Complete
 
 **Current Version**: See [VERSION](VERSION)
+
+### Recent Enhancements
+
+- **Diagram Generation Module**: Automatic Mermaid diagram generation for attack flows, network topologies, and timelines
+- **Organized Report Storage**: Reports automatically organized by date and machine+time in `enumeration_reports/`
+- **Comprehensive Test Suite**: End-to-end test harness with coverage reporting for all modules
 
 ---
 
