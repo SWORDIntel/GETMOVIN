@@ -14,6 +14,7 @@ License: For authorized security testing only
 
 import sys
 import ipaddress
+import logging
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
@@ -23,6 +24,9 @@ from rich.text import Text
 from rich import box
 import os
 from pathlib import Path
+
+# Configure logging for discovery
+logging.basicConfig(level=logging.WARNING)
 
 # Import modules
 from modules.foothold import FootholdModule
@@ -71,8 +75,9 @@ def is_local_ip(ip_str):
 class LateralMovementTUI:
     """Main TUI application for Windows lateral movement simulation"""
     
-    def __init__(self):
+    def __init__(self, preload_requirements: bool = True):
         self.console = console
+        self.preload_requirements = preload_requirements
         self.discovered_components = self._discover_components()
         self.modules = self._initialize_modules()
         self.session_data = {
@@ -87,9 +92,23 @@ class LateralMovementTUI:
         """Discover all available components"""
         try:
             from modules.discovery import ComponentDiscovery
-            discovery = ComponentDiscovery()
+            
+            # Check if preloading is enabled via environment variable
+            auto_preload = self.preload_requirements or os.getenv('PRELOAD_REQUIREMENTS', '').lower() in ('1', 'true', 'yes')
+            
+            discovery = ComponentDiscovery(auto_preload=auto_preload)
+            
+            # If auto_preload is False but we have missing deps, offer to install
+            if not auto_preload:
+                deps = discovery.discovered_components.get('optional_dependencies', {})
+                missing = [k for k, v in deps.items() if not v]
+                if missing:
+                    self.console.print(f"\n[dim yellow]Optional dependencies missing: {', '.join(missing)}[/dim yellow]")
+                    self.console.print("[dim]Set PRELOAD_REQUIREMENTS=1 or use '?' menu to install[/dim]\n")
+            
             return discovery.get_summary()
         except Exception as e:
+            logging.debug(f"Component discovery failed: {e}")
             # Fallback discovery
             return self._fallback_discovery()
     
@@ -231,7 +250,7 @@ class LateralMovementTUI:
             table.add_row(f"[bold]{key}[/bold]", name, descriptions[key])
         
         table.add_row("[bold]0[/bold]", "[dim]Exit[/dim]", "[dim]Exit application[/dim]")
-        table.add_row("[bold]?[/bold]", "[dim cyan]Component Discovery[/dim cyan]", "[dim]Show available components[/dim]")
+        table.add_row("[bold]?[/bold]", "[dim cyan]Component Discovery[/dim cyan]", "[dim]Show available components & preload[/dim]")
         
         self.console.print(table)
         self.console.print()

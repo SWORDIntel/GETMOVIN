@@ -7,20 +7,27 @@ Automatically discovers and reports availability of all components:
 - Optional dependencies
 - External tools
 - Configuration files
+
+Also handles preloading/installing requirements.
 """
 
 import sys
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
+import importlib.util
 
 
 class ComponentDiscovery:
     """Discover and report component availability"""
     
-    def __init__(self):
+    def __init__(self, auto_preload: bool = False):
         self.discovered_components = {}
+        self.auto_preload = auto_preload
         self.discover_all()
+        if auto_preload:
+            self.preload_requirements()
     
     def discover_all(self):
         """Discover all components"""
@@ -251,8 +258,137 @@ class ComponentDiscovery:
             print(f"  Relay Server Configs: {len(configs['relay_server_configs'])} found")
         
         print("\n" + "=" * 60 + "\n")
+    
+    def preload_requirements(self, interactive: bool = False) -> Dict[str, bool]:
+        """Preload/install missing optional requirements"""
+        results = {}
+        missing_deps = []
+        
+        # Check which dependencies are missing
+        deps = self.discovered_components.get('optional_dependencies', {})
+        for dep_name, available in deps.items():
+            if not available:
+                missing_deps.append(dep_name)
+        
+        if not missing_deps:
+            return results
+        
+        # Map dependency names to pip package names
+        pip_packages = {
+            'websockets': 'websockets',
+            'aiohttp': 'aiohttp',
+            'yaml': 'pyyaml',
+            'cryptography': 'cryptography',
+        }
+        
+        if interactive:
+            print(f"\n[bold yellow]Missing optional dependencies detected:[/bold yellow]")
+            for dep in missing_deps:
+                print(f"  - {dep}")
+            
+            try:
+                from rich.prompt import Confirm
+                if not Confirm.ask("\n[bold]Install missing dependencies?[/bold]", default=True):
+                    return results
+            except ImportError:
+                response = input("\nInstall missing dependencies? [Y/n]: ").strip().lower()
+                if response and response != 'y':
+                    return results
+        
+        # Install missing dependencies
+        for dep_name in missing_deps:
+            pip_package = pip_packages.get(dep_name, dep_name)
+            try:
+                print(f"[dim]Installing {pip_package}...[/dim]", end='', flush=True)
+                result = subprocess.run(
+                    [sys.executable, '-m', 'pip', 'install', '--quiet', pip_package],
+                    capture_output=True,
+                    timeout=60,
+                    check=False
+                )
+                
+                if result.returncode == 0:
+                    # Verify installation
+                    try:
+                        __import__(dep_name)
+                        results[dep_name] = True
+                        print(f" [green]✓[/green]")
+                    except ImportError:
+                        results[dep_name] = False
+                        print(f" [red]✗[/red]")
+                else:
+                    results[dep_name] = False
+                    print(f" [red]✗[/red]")
+            except Exception as e:
+                results[dep_name] = False
+                print(f" [red]✗[/red]")
+                logging.debug(f"Failed to install {dep_name}: {e}")
+        
+        # Re-discover after installation
+        if any(results.values()):
+            self.discover_optional_dependencies()
+        
+        return results
+    
+    def preload_all_requirements(self, requirements_file: Optional[str] = None) -> Dict[str, bool]:
+        """Preload all requirements from requirements.txt"""
+        if requirements_file is None:
+            # Try to find requirements.txt
+            req_paths = [
+                Path('requirements.txt'),
+                Path('../requirements.txt'),
+                Path(__file__).parent.parent / 'requirements.txt',
+            ]
+            
+            for req_path in req_paths:
+                if req_path.exists():
+                    requirements_file = str(req_path)
+                    break
+        
+        if not requirements_file or not Path(requirements_file).exists():
+            return {}
+        
+        results = {}
+        
+        try:
+            # Read requirements.txt
+            with open(requirements_file, 'r') as f:
+                requirements = []
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # Handle comments and version specifiers
+                        req = line.split('#')[0].strip()
+                        if req:
+                            requirements.append(req)
+            
+            if not requirements:
+                return results
+            
+            # Install requirements
+            print(f"\n[dim]Preloading requirements from {requirements_file}...[/dim]")
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--quiet', '--upgrade'] + requirements,
+                capture_output=True,
+                timeout=300,
+                check=False
+            )
+            
+            if result.returncode == 0:
+                # Re-discover after installation
+                self.discover_optional_dependencies()
+                results['all_requirements'] = True
+            else:
+                results['all_requirements'] = False
+                logging.debug(f"Failed to install requirements: {result.stderr.decode()}")
+        
+        except Exception as e:
+            results['all_requirements'] = False
+            logging.debug(f"Failed to preload requirements: {e}")
+        
+        return results
 
 
-def discover_all_components() -> ComponentDiscovery:
+def discover_all_components(auto_preload: bool = False) -> ComponentDiscovery:
     """Convenience function to discover all components"""
-    return ComponentDiscovery()
+    return ComponentDiscovery(auto_preload=auto_preload)
