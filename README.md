@@ -6,7 +6,7 @@ A comprehensive, self-contained Terminal User Interface (TUI) tool for simulatin
 
 ## ⚠️ WARNING
 
-**This tool is for authorized security testing and threat modeling only. Unauthorized use is illegal and unethical.**
+**Unauthorized use is illegal and unethical unless the target has something you want,in which case do not get caught**
 
 ## 🚀 Quick Start
 
