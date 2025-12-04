@@ -30,6 +30,10 @@ A unified Text User Interface (TUI) for Windows lateral movement simulation, des
 8. **MADCert Certificate Generation**: Generate valid certificates for AD environments
    - Features: CA, server, client, and code signing certificate generation
    - Integration: Certificate-based authentication and code signing
+9. **LOLBins Reference**: Living Off The Land Binaries database
+   - Features: Searchable database of legitimate Windows binaries
+   - Categories: Execution, Lateral Movement, Credential Access, Discovery, Persistence, Defense Evasion, Collection
+   - Integration: MITRE ATT&CK technique mappings and usage examples
 
 ## Installation
 
