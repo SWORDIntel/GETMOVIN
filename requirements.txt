@@ -1,1 +1,10 @@
+# Windows Lateral Movement Simulation TUI - Dependencies
+# All dependencies are self-contained and can be installed offline
+
+# Terminal UI Framework
 rich>=13.0.0
+
+# Note: This tool is designed to be completely self-contained
+# No online dependencies are required for core functionality
+# Optional external tools (LogHunter, MADCert) enhance functionality
+# but are not required for the tool to operate

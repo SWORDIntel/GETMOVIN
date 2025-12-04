@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Windows Lateral Movement Simulation TUI
 Red Team / Threat Modeling Tool
+
+A comprehensive self-contained tool for Windows lateral movement simulation
+and threat modeling, aligned with APT-41 TTPs and MITRE ATT&CK framework.
+
+Author: Security Research Team
+Version: 1.0.0
+License: For authorized security testing only
 """
 
 import sys

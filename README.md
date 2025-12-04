@@ -1,223 +1,391 @@
 # Windows Lateral Movement Simulation TUI
 
-A unified Text User Interface (TUI) for Windows lateral movement simulation, designed for red team exercises and threat modeling in Active Directory environments.
+**Red Team / Threat Modeling Tool for Windows Environments**
+
+A comprehensive Terminal User Interface (TUI) tool for simulating and modeling Windows lateral movement techniques, aligned with APT-41 (Winnti Group) Tactics, Techniques, and Procedures (TTPs).
+
+## ⚠️ WARNING
+
+**This tool is for authorized security testing and threat modeling only. Unauthorized use is illegal.**
 
 ## Features
 
-- **Unified Interface**: All lateral movement functions accessible from a single TUI
-- **Modular Design**: Organized into 6 main modules covering the entire attack lifecycle
-- **Live Execution**: Commands execute in real-time (when LAB_USE != 1)
-- **Lab Mode**: Restrict operations to local IP ranges only (LAB_USE = 1)
-- **Minimal Footprint**: Uses native Windows binaries and PowerShell cmdlets
-- **APT-41 TTPs**: Enhanced with known APT-41 (Winnti Group) tactics, techniques, and procedures
+- **Self-Contained**: No online dependencies - all functionality is local
+- **APT-41 TTP Alignment**: Techniques aligned with known APT-41 methodologies
+- **MITRE ATT&CK Integration**: Comprehensive TTP coverage
+- **Modular Architecture**: 11 integrated modules covering all phases of lateral movement
+- **Auto-Enumeration Mode**: Automated comprehensive enumeration with lateral movement
+- **LogHunter Integration**: Windows event log analysis and hunting
+- **Windows Moonwalk**: Advanced log clearing with fake entry injection
+- **LOLBins Reference**: Living Off The Land Binaries database
+- **MADCert Integration**: Certificate generation for AD environments
+- **LLM Remote Agent**: Self-coding execution agent with custom protocol
+
+## Quick Start
+
+### Windows
+
+```batch
+run.bat
+```
+
+### Linux/Mac (for testing)
+
+```bash
+./run.sh
+```
+
+The script will automatically:
+1. Check for Python 3.8+
+2. Create a virtual environment (if needed)
+3. Install dependencies
+4. Launch the tool
+
+## Manual Installation
+
+### Prerequisites
+
+- Python 3.8 or higher
+- Windows operating system (primary target)
+- Administrator privileges (for some operations)
+
+### Installation Steps
+
+1. **Clone or extract the tool:**
+   ```bash
+   git clone <repository-url>
+   cd windows-lateral-movement-tui
+   ```
+
+2. **Create virtual environment:**
+   ```bash
+   python -m venv venv
+   ```
+
+3. **Activate virtual environment:**
+   - Windows: `venv\Scripts\activate`
+   - Linux/Mac: `source venv/bin/activate`
+
+4. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. **Run the tool:**
+   ```bash
+   python main.py
+   ```
+
+## Configuration
+
+### Environment Variables
+
+- `LAB_USE=1` - Limits operations to local IP ranges only (default: 1)
+- `AUTO_ENUMERATE=1` - Enable automatic enumeration on startup (default: 0)
+- `AUTO_ENUMERATE_DEPTH=3` - Maximum lateral movement depth (default: 3)
+
+### Configuration in Code
+
+Edit `main.py` to change default settings:
+
+```python
+LAB_USE = 1  # Set to 0 for live mode
+AUTO_ENUMERATE = 0  # Set to 1 for auto-enumeration
+AUTO_ENUMERATE_DEPTH = 3  # Maximum lateral movement depth
+```
 
 ## Modules
 
-1. **Foothold & Starting Point**: SSH foothold assessment, identity checks, host role classification
-   - TTPs: T1078, T1550, T1021.004, T1087, T1018
-2. **Local Orientation**: Identity mapping, host classification, network visibility, service accounts
-   - TTPs: T1018, T1087, T1135, T1082
-3. **Identity Acquisition**: Credential harvesting, domain context, token extraction
-   - TTPs: T1003.001, T1003.002, T1059.001, T1550.002, T1550.003
-4. **Lateral Movement Channels**: SMB/RPC, WinRM, WMI, RDP, DCOM, SSH tunneling
-   - TTPs: T1021.002, T1021.006, T1021.001, T1569.002, T1047, T1053.005, T1570
-5. **Consolidation & Dominance**: Strategic objectives, DC access, persistence mechanisms
-   - TTPs: T1053.005, T1543.003, T1053.003
-6. **OPSEC Considerations**: Tool selection, detection evasion, behavioral blending
-   - TTPs: Defense evasion, log clearing, masquerading
-7. **LLM Remote Agent**: Self-coding execution system with binary protocol
-   - Features: Remote command execution, code generation, binary protocol communication
-8. **MADCert Certificate Generation**: Generate valid certificates for AD environments
-   - Features: CA, server, client, and code signing certificate generation
-   - Integration: Certificate-based authentication and code signing
-9. **LOLBins Reference**: Living Off The Land Binaries database
-   - Features: Searchable database of legitimate Windows binaries
-   - Categories: Execution, Lateral Movement, Credential Access, Discovery, Persistence, Defense Evasion, Collection
-   - Integration: MITRE ATT&CK technique mappings and usage examples
-   - Dynamic Command Builder: Interactive command generation based on use cases
-   - MADCert Integration: Certificate-based file signing with MADCert-generated certificates
+### 1. Foothold & Starting Point
+- Identity and privilege assessment
+- Host role classification
+- Network visibility analysis
+- APT-41 initial access techniques
 
-## Installation
+### 2. Local Orientation
+- Identity and privilege mapping
+- Host role classification
+- Network visibility
+- Service account discovery
+- Scheduled task analysis
+- Security software discovery
+
+### 3. Identity Acquisition
+- Local credential sources
+- Credential store access
+- Configuration secrets
+- User artifacts
+- Domain context and delegation
+- Token and ticket extraction
+- LSASS memory dumping
+
+### 4. Lateral Movement Channels
+- SMB/RPC-based movement
+- WinRM / PowerShell Remoting
+- WMI-based execution
+- RDP-based pivoting
+- DCOM / COM-based movement
+- SSH tunneling and port forwarding
+- APT-41 custom tools
+
+### 5. Consolidation & Dominance
+- Strategic objectives
+- Domain controller access
+- Persistence mechanisms
+- Control planes
+- Cleanup operations
+- APT-41 persistence techniques
+
+### 6. OPSEC Considerations
+- Tool selection and native binaries
+- Detection evasion
+- Logging avoidance
+- Behavioral blending
+- OPSEC checklist
+- APT-41 defense evasion
+
+### 7. LLM Remote Agent
+- Self-coding execution agent
+- MEMSHADOW MRAC protocol
+- Remote command execution
+- Code generation and patching
+
+### 8. MADCert Certificate Generation
+- CA certificate generation
+- Server certificate generation
+- Client certificate generation
+- Code signing certificate generation
+- Certificate management
+
+### 9. LOLBins Reference
+- Comprehensive LOLBins database
+- Search and browse functionality
+- Dynamic command builders
+- Defense evasion builders
+- Certificate signing integration
+
+### 10. LogHunter Integration
+- Credential access event hunting
+- Lateral movement indicator hunting
+- Privilege escalation event hunting
+- Custom log queries
+- Log export functionality
+
+### 11. Windows Moonwalk
+- Event log clearing with fake entry injection
+- PowerShell history clearing
+- Command history clearing
+- Registry trace removal
+- Prefetch file clearing
+- Recent files and Jump Lists clearing
+- Temp file cleanup
+- Browser history clearing
+- Windows Defender log clearing
+- Windows artifact cleanup
+- Application compatibility cache clearing
+
+## Auto-Enumeration Mode
+
+Enable automatic comprehensive enumeration:
 
 ```bash
-pip install -r requirements.txt
-```
+# Set environment variable
+export AUTO_ENUMERATE=1
+export AUTO_ENUMERATE_DEPTH=3
 
-## Usage
+# Or edit main.py
+AUTO_ENUMERATE = 1
+AUTO_ENUMERATE_DEPTH = 3
 
-```bash
+# Run tool
 python main.py
 ```
 
-## Configuration Flags
+Auto-enumeration will:
+- Enumerate all modules automatically
+- Perform lateral movement up to specified depth
+- Use LOTL techniques for remote enumeration
+- Generate comprehensive reports (TXT, JSON, HTML)
+- Perform moonwalk cleanup after operations
 
-### LAB_USE Flag
+## Dependencies
 
-The `LAB_USE` flag in `main.py` controls operation mode:
+### Python Packages
 
-- **LAB_USE = 1**: Lab mode - restricts all operations to local IP ranges only (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8)
-- **LAB_USE != 1**: Live mode - full execution enabled for all targets
+- `rich>=13.0.0` - Terminal UI framework
 
-To change the mode, edit `LAB_USE` in `main.py`:
+All dependencies are listed in `requirements.txt` and can be installed offline.
 
-```python
-# LAB_USE flag: Set to 1 to limit operations to local IP ranges only
-LAB_USE = 1  # Lab mode
-# LAB_USE = 0  # Live mode
+### External Tools (Optional)
+
+- **LogHunter**: For advanced log analysis (optional)
+- **MADCert**: For certificate generation (optional)
+
+These tools are optional and the TUI will function without them.
+
+## Project Structure
+
+```
+.
+├── main.py                      # Main entry point
+├── run.bat                      # Windows launcher script
+├── run.sh                       # Linux/Mac launcher script
+├── requirements.txt             # Python dependencies
+├── README.md                    # This file
+├── modules/                     # Core modules
+│   ├── __init__.py
+│   ├── utils.py                # Utility functions
+│   ├── foothold.py             # Foothold module
+│   ├── orientation.py          # Orientation module
+│   ├── identity.py             # Identity module
+│   ├── lateral.py              # Lateral movement module
+│   ├── consolidation.py        # Consolidation module
+│   ├── opsec.py                # OPSEC module
+│   ├── llm_agent.py            # LLM agent module
+│   ├── madcert_integration.py  # MADCert integration
+│   ├── lolbins_reference.py    # LOLBins reference
+│   ├── auto_enumerate.py       # Auto-enumeration
+│   ├── loghunter_integration.py # LogHunter & Moonwalk
+│   ├── memshadow_protocol.py   # MRAC protocol
+│   └── memshadow_client.py     # MRAC client
+├── docs/                        # Documentation
+│   ├── Auto_Enumeration.md
+│   ├── LOLBins_Reference.md
+│   └── MADCert_Integration.md
+└── examples/                    # Example scripts
+    └── llm_agent_example.py
 ```
 
-### AUTO_ENUMERATE Flag
+## Usage Examples
 
-The `AUTO_ENUMERATE` flag enables automatic comprehensive enumeration with lateral movement:
+### Basic Usage
 
-- **AUTO_ENUMERATE = 1**: Automatically enumerate all modules on startup and generate comprehensive report
-- **AUTO_ENUMERATE = 0**: Interactive mode (default)
+```bash
+# Run with default settings (LAB_USE=1)
+python main.py
 
-When enabled, the tool will:
-1. Automatically run enumeration across all modules
-2. Collect foothold, orientation, identity, network, and persistence data
-3. Test lateral movement targets
-4. **Automatically perform lateral movement** to accessible targets using LOTL techniques
-5. **Recursively enumerate** up to 3 machines deep
-6. Track all lateral movement paths and methods used
-7. Generate comprehensive reports in multiple formats (TXT, JSON, HTML)
+# Run in live mode
+# Edit main.py: LAB_USE = 0
+python main.py
 
-**Automatic Lateral Movement Features:**
-- Detects accessible targets (SMB/WinRM)
-- Uses only LOTL techniques (wmic, schtasks, net, PowerShell remoting)
-- Maximum depth: 3 machines
-- Tracks visited hosts to prevent loops
-- Records all paths and enumeration data
-
-To enable:
-
-```python
-# AUTO_ENUMERATE flag: Set to 1 for automatic enumeration on startup
-AUTO_ENUMERATE = 1  # Auto-enumeration mode
-# AUTO_ENUMERATE = 0  # Interactive mode
+# Run with auto-enumeration
+# Edit main.py: AUTO_ENUMERATE = 1
+python main.py
 ```
 
-## Requirements
+### Module Selection
 
-- Python 3.7+
-- Windows environment (for command execution)
-- PowerShell 5.0+
-- Rich library for TUI
+1. Launch the tool
+2. Select a module from the main menu (1-11)
+3. Choose specific functions within the module
+4. Review results and execute commands
 
-## MITRE ATT&CK TTP Integration
+### Auto-Enumeration
 
-This tool is aligned with comprehensive MITRE ATT&CK techniques for Windows lateral movement:
+```bash
+# Set environment variables
+export AUTO_ENUMERATE=1
+export AUTO_ENUMERATE_DEPTH=3
 
-### 1. Access & Authentication
-- **T1078** – Valid Accounts: Use of real domain/local/service accounts (stolen or misused) for lateral auth
-- **T1550** – Use Alternate Authentication Material: Reuse of hashes, Kerberos tickets, tokens instead of cleartext passwords
-  - T1550.002 – Pass-the-Hash (PtH)
-  - T1550.003 – Pass-the-Ticket (PtT)
-  - T1550.001 – Application Access Token
+# Run tool
+python main.py
 
-### 2. Remote Service Channels (Core Movement Rails)
-- **T1021** – Remote Services (family): Moving via authenticated remote service sessions
-  - **T1021.004** – SSH (headless SSH daemon on Windows box)
-  - **T1021.001** – Remote Desktop Protocol (RDP)
-  - **T1021.002** – SMB/Windows Admin Shares (C$, ADMIN$, IPC$)
-  - **T1021.006** – Windows Remote Management (WinRM)
-
-### 3. Discovery to Pick Hosts & Paths
-- **T1018** – Remote System Discovery: Query AD, Net* commands, WMI, PS remoting to enumerate nodes
-- **T1087** – Account Discovery: Find high-value/local admin/DA accounts to pivot with
-  - T1087.001 – Account Discovery: Local Account
-  - T1087.002 – Account Discovery: Domain Account
-- **T1135** – Network Share Discovery: What shares exist where payloads/creds/tools might live
-- **T1082** – System Information Discovery: Understand host role and capabilities
-
-### 4. Credential Access to Enable More Movement
-- **T1003** – OS Credential Dumping
-  - **T1003.001** – LSASS Memory: Classic LSASS scraping, SAM/SECURITY hive abuse
-  - T1003.002 – Security Account Manager
-- **T1059.001** – Command & Scripting Interpreter: PowerShell
-  - Used as execution engine and for credential access helpers (Invoke-Mimikatz, LSASS readers)
-
-### 5. Actual Remote Execution / Tooling
-- **T1569.002** – System Services: Service Execution
-  - PsExec/SC-based remote service abuse for "push binary → run as service" patterns
-- **T1047** – Windows Management Instrumentation (WMI)
-  - WMI for remote process creation, recon, and "living off the land" movement
-- **T1053.005** – Scheduled Task/Job: Scheduled Task
-  - schtasks-based remote or local scheduled execution (persistence + lateral EXE/PS script runs)
-- **T1570** – Lateral Tool Transfer
-  - Copying tooling over SMB/WinRM/SSH shares before execution
-
-### 6. Persistence
-- **T1053.005** – Scheduled Task/Job: Scheduled Task
-- **T1543.003** – Create/Modify System Process: Windows Service
-- **T1053.003** – Scheduled Task/Job: WMI Event Subscription
-
-Each module includes specific MITRE ATT&CK technique IDs and context for reference.
-
-## Disclaimer
-
-This tool is for **authorized red team exercises and threat modeling only**. Unauthorized use is illegal and unethical. Use only on systems you own or have explicit written permission to test.
-
-## LLM Remote Agent Module
-
-The LLM Remote Agent module provides a self-coding execution system that can:
-
-- **Accept remote commands** from LLM clients via binary protocol
-- **Generate code** in Python, PowerShell, or Batch based on specifications
-- **Execute generated code** safely with sandboxing
-- **Communicate** over a custom 2-way binary protocol
-
-### Binary Protocol
-
-The protocol uses a structured binary format:
-- **Magic**: 4-byte identifier (0xAABBCCDD)
-- **Version**: 1-byte protocol version
-- **Type**: 1-byte message type
-- **Length**: 4-byte payload length (big-endian)
-- **Payload**: JSON-encoded message data
-
-### Message Types
-
-- `MSG_COMMAND` (0x01): Execute a command
-- `MSG_CODE_GENERATE` (0x02): Generate code from specification
-- `MSG_EXECUTE` (0x03): Execute generated code
-- `MSG_RESPONSE` (0x04): Response message
-- `MSG_ERROR` (0x05): Error message
-- `MSG_HEARTBEAT` (0x06): Keep-alive message
-
-### Execution Features
-
-- Sandboxed execution environment
-- Temporary file management
-- Execution timeout protection (30 seconds)
-- Multi-threaded server architecture
-
-### Usage Example
-
-```python
-from modules.llm_client import LLMAgentClient
-
-client = LLMAgentClient(host='localhost', port=8888)
-client.connect()
-
-# Generate code
-spec = {
-    'language': 'python',
-    'description': 'Print hello world',
-    'requirements': ['Print greeting'],
-    'imports': []
-}
-response = client.generate_code(spec)
-
-# Execute code
-exec_response = client.execute_code(
-    response['file_path'],
-    response['language']
-)
+# Tool will automatically:
+# - Enumerate all modules
+# - Perform lateral movement
+# - Generate reports
+# - Clean up traces
 ```
 
-See `examples/llm_agent_example.py` for a complete example.
+## MITRE ATT&CK TTPs
+
+The tool aligns with the following MITRE ATT&CK techniques:
+
+- **T1078** - Valid Accounts
+- **T1550** - Alternate Authentication Material
+- **T1021** - Remote Services
+- **T1087** - Account Discovery
+- **T1018** - Remote System Discovery
+- **T1003** - OS Credential Dumping
+- **T1059** - Command and Scripting Interpreter
+- **T1053** - Scheduled Task/Job
+- **T1562** - Impair Defenses
+- **T1070** - Indicator Removal
+- **T1036** - Masquerading
+- **T1027** - Obfuscated Files or Information
+- **T1105** - Ingress Tool Transfer
+- And many more...
+
+## Security Considerations
+
+- **LAB_USE Mode**: Default mode restricts operations to local IP ranges
+- **No Online Dependencies**: All functionality is local and self-contained
+- **Authorization Required**: Use only in authorized testing environments
+- **Log Clearing**: Moonwalk module includes advanced evasion techniques
+- **OPSEC**: Built-in operational security considerations
+
+## Troubleshooting
+
+### Python Not Found
+
+```bash
+# Windows: Add Python to PATH
+# Or use full path: C:\Python3x\python.exe main.py
+
+# Linux/Mac: Install Python 3.8+
+sudo apt-get install python3  # Debian/Ubuntu
+brew install python3          # macOS
+```
+
+### Module Import Errors
+
+```bash
+# Ensure virtual environment is activated
+# Windows: venv\Scripts\activate
+# Linux/Mac: source venv/bin/activate
+
+# Reinstall dependencies
+pip install -r requirements.txt --force-reinstall
+```
+
+### Permission Errors
+
+- Some operations require administrator privileges
+- Run as administrator on Windows
+- Use `sudo` on Linux (if needed)
+
+## Contributing
+
+This is a security research tool. Contributions should focus on:
+- Bug fixes
+- Performance improvements
+- Additional TTP coverage
+- Documentation improvements
 
 ## License
 
-For authorized testing purposes only.
+**For authorized security testing and threat modeling only.**
+
+## Disclaimer
+
+This tool is provided for educational and authorized security testing purposes only. The authors and contributors are not responsible for any misuse or damage caused by this tool. Users are responsible for ensuring they have proper authorization before using this tool in any environment.
+
+## References
+
+- [MITRE ATT&CK Framework](https://attack.mitre.org/)
+- [APT-41 (Winnti Group)](https://attack.mitre.org/groups/G0016/)
+- [LogHunter](https://github.com/CICADA8-Research/LogHunter)
+- [MADCert](https://github.com/NationalSecurityAgency/MADCert)
+- [Awesome LOLBins](https://github.com/sheimo/awesome-lolbins-and-beyond)
+
+## Version
+
+Current Version: 1.0.0
+
+## Support
+
+For issues, questions, or contributions, please refer to the project repository.
+
+---
+
+**Remember: Always obtain proper authorization before using this tool.**

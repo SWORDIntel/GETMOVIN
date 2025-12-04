@@ -499,7 +499,7 @@ class WindowsMoonwalk:
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
             # Clear all user PowerShell history files (multiple locations)
-            ps_cmd = '''
+            ps_cmd = r'''
             $paths = @(
                 "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt",
                 "$env:LOCALAPPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
@@ -665,7 +665,7 @@ class WindowsMoonwalk:
         """
         try:
             # Clear Recent Documents (Windows-specific location)
-            ps_cmd = '''
+            ps_cmd = r'''
             $recentPaths = @(
                 "$env:APPDATA\Microsoft\Windows\Recent\*",
                 "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations\*",
@@ -680,7 +680,7 @@ class WindowsMoonwalk:
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
             # Clear Jump Lists (Windows 7+ feature)
-            ps_cmd = '''
+            ps_cmd = r'''
             $jumpListPath = "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations"
             if (Test-Path $jumpListPath) {
                 Get-ChildItem $jumpListPath | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -689,7 +689,7 @@ class WindowsMoonwalk:
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
             # Clear LNK files (Windows shortcut files)
-            ps_cmd = '''
+            ps_cmd = r'''
             $lnkPaths = @(
                 "$env:APPDATA\Microsoft\Windows\SendTo",
                 "$env:APPDATA\Microsoft\Windows\Start Menu"
@@ -715,7 +715,7 @@ class WindowsMoonwalk:
         """
         try:
             # Windows temporary directories (not Linux /tmp equivalents)
-            ps_cmd = '''
+            ps_cmd = r'''
             $tempDirs = @(
                 $env:TEMP,
                 $env:TMP,
@@ -804,7 +804,7 @@ class WindowsMoonwalk:
         
         try:
             # Clear Windows Defender logs
-            ps_cmd = '''
+            ps_cmd = r'''
             $defenderLogs = @(
                 "$env:ProgramData\Microsoft\Windows Defender\Support\*.log",
                 "$env:ProgramData\Microsoft\Windows Defender\Scans\*.log",
@@ -818,7 +818,7 @@ class WindowsMoonwalk:
             results['cleared'].append('Windows Defender logs')
             
             # Clear Windows Defender quarantine (if accessible)
-            ps_cmd = '''
+            ps_cmd = r'''
             $quarantinePath = "$env:ProgramData\Microsoft\Windows Defender\Quarantine"
             if (Test-Path $quarantinePath) {
                 Get-ChildItem $quarantinePath -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
@@ -843,7 +843,7 @@ class WindowsMoonwalk:
         
         try:
             # Clear Thumbnail Cache (Windows-specific)
-            ps_cmd = '''
+            ps_cmd = r'''
             $thumbCache = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\thumbcache_*.db"
             Get-ChildItem $thumbCache -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
             '''
@@ -858,7 +858,7 @@ class WindowsMoonwalk:
             results['cleared'].append('Recycle Bin')
             
             # Clear Windows Search history
-            ps_cmd = '''
+            ps_cmd = r'''
             $searchPath = "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations"
             if (Test-Path $searchPath) {
                 Get-ChildItem $searchPath | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -868,7 +868,7 @@ class WindowsMoonwalk:
             results['cleared'].append('Windows Search history')
             
             # Clear Windows Error Reporting (WER) logs
-            ps_cmd = '''
+            ps_cmd = r'''
             $werPath = "$env:LOCALAPPDATA\Microsoft\Windows\WER"
             if (Test-Path $werPath) {
                 Get-ChildItem $werPath -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
@@ -878,7 +878,7 @@ class WindowsMoonwalk:
             results['cleared'].append('Windows Error Reporting logs')
             
             # Clear Windows Update logs
-            ps_cmd = '''
+            ps_cmd = r'''
             $updateLogs = "$env:SystemRoot\Logs\WindowsUpdate"
             if (Test-Path $updateLogs) {
                 Get-ChildItem $updateLogs -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -903,7 +903,7 @@ class WindowsMoonwalk:
         
         try:
             # Clear Amcache (Windows 7+)
-            ps_cmd = '''
+            ps_cmd = r'''
             $amcachePath = "$env:SystemRoot\AppCompat\Programs\Amcache.hve"
             if (Test-Path $amcachePath) {
                 # Note: This file is locked by Windows, may require system restart
@@ -915,7 +915,7 @@ class WindowsMoonwalk:
             results['cleared'].append('Amcache references')
             
             # Clear SRUM (System Resource Usage Monitor) database
-            ps_cmd = '''
+            ps_cmd = r'''
             $srumPath = "$env:SystemRoot\System32\sru"
             if (Test-Path $srumPath) {
                 # SRUM database is locked, but we can try to clear related registry entries
