@@ -39,15 +39,18 @@ class IdentityModule:
             table.add_row("5", "Domain Context & Delegation [APT-41: Discovery]")
             table.add_row("6", "Token & Ticket Extraction [APT-41: Credential Access]")
             table.add_row("7", "LSASS Memory Dumping [APT-41: Credential Access]")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._local_credentials(console, session_data)
             elif choice == '2':
@@ -68,6 +71,47 @@ class IdentityModule:
                 self._moonwalk_cleanup(console, 'credential_access')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Identity Acquisition Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Harvest credentials and understand domain context for lateral movement.
+
+[bold]Key Functions:[/bold]
+1. Local Credential Sources - SAM, LSA secrets, cached credentials
+2. Credential Store Access - Windows Credential Manager, Vault
+3. Configuration Secrets - Config files, registry, service accounts
+4. User Artifacts - Browser passwords, saved credentials
+5. Domain Context & Delegation - Domain info, trust relationships
+6. Token & Ticket Extraction - Kerberos tickets, access tokens
+7. LSASS Memory Dumping - Extract credentials from memory
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1003 - OS Credential Dumping
+• T1555 - Credentials from Password Stores
+• T1556 - Modify Authentication Process
+• T1078 - Valid Accounts
+• T1087 - Account Discovery
+• T1003.001 - LSASS Memory
+
+[bold]Usage Tips:[/bold]
+• Start with option 1 for local credentials
+• Option 5 provides domain context for lateral movement
+• Option 6 extracts tokens for pass-the-ticket attacks
+• Option 7 (LSASS) requires elevated privileges
+• Moonwalk automatically clears credential access traces
+
+[bold]Best Practices:[/bold]
+• Extract domain admin credentials when possible
+• Use tokens/tickets for stealthy lateral movement
+• Document service account credentials
+• Clear traces after credential extraction"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

@@ -39,15 +39,18 @@ class OrientationModule:
             table.add_row("4", "Service Account Discovery [APT-41: Discovery]")
             table.add_row("5", "Scheduled Task Analysis [APT-41: Persistence]")
             table.add_row("6", "Security Software Discovery [APT-41: Defense Evasion]")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._identity_mapping(console, session_data)
             elif choice == '2':
@@ -66,6 +69,46 @@ class OrientationModule:
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Local Orientation Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Understand identity, host role, and network visibility from beachhead.
+
+[bold]Key Functions:[/bold]
+1. Identity & Privilege Mapping - Map current user and privileges
+2. Host Role Classification - Identify workstation, server, or domain controller
+3. Network Visibility Assessment - Discover network topology and reachable hosts
+4. Service Account Discovery - Find service accounts for privilege escalation
+5. Scheduled Task Analysis - Identify persistence mechanisms
+6. Security Software Discovery - Detect AV/EDR before operations
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1082 - System Information Discovery
+• T1018 - Remote System Discovery
+• T1033 - System Owner/User Discovery
+• T1087 - Account Discovery
+• T1053 - Scheduled Task/Job
+• T1518 - Software Discovery
+
+[bold]Usage Tips:[/bold]
+• Use option 1 to understand your current access level
+• Option 2 helps identify high-value targets (DCs, file servers)
+• Option 3 maps the network for lateral movement planning
+• Option 6 is critical - know what security software is present
+• Moonwalk automatically clears traces after each operation
+
+[bold]Best Practices:[/bold]
+• Document all discovered hosts and their roles
+• Note service accounts with high privileges
+• Identify network segments and firewall boundaries
+• Check for security software before executing operations"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

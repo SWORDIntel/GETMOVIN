@@ -93,13 +93,14 @@ class PE5SystemEscalationModule:
                 ("8", "SMBv3 Local PE", "CVE-2020-0796 local escalation", "CVE-2020-0796"),
                 ("9", "Verify SYSTEM Privileges", "Post-exploitation verification", "T1087"),
                 ("10", "Generate PE Report", "Comprehensive privilege escalation report", "T1087"),
+                ("g", "Module Guide", "Comprehensive usage guide and TTPs", "Help"),
                 ("h", "AI Guidance & Help", "Get AI-powered guidance for PE5 techniques", "Help"),
                 ("?", "Quick Reference", "Quick reference guide and examples", "Help"),
                 ("0", "Return to main menu", "Exit PE5 module", "")
             ]
             
             for opt, func, desc, ttp in functions:
-                if opt == "h" or opt == "?":
+                if opt in ["h", "?", "g"]:
                     table.add_row(f"[bold]{opt}[/bold]", f"[bold cyan]{func}[/bold cyan]", desc, ttp)
                 else:
                     table.add_row(f"[bold]{opt}[/bold]", func, desc, ttp)
@@ -117,14 +118,15 @@ class PE5SystemEscalationModule:
             choice = choice.lower()
             if choice in ['h', 'help']:
                 choice = 'h'
-            elif choice == '?':
-                choice = '?'
+            elif choice == '?' and hasattr(self, '_show_module_guide'):
+                # Check if guide was already shown
+                pass
             
             if choice == '0':
                 break
             elif choice == 'h':
                 self._ai_guidance(console, session_data)
-            elif choice == '?':
+            elif choice == '?' and not hasattr(self, '_show_module_guide'):
                 self._quick_reference(console, session_data)
             elif choice == '1':
                 self._pe5_mechanism(console, session_data)
@@ -156,6 +158,51 @@ class PE5SystemEscalationModule:
                 self._moonwalk_cleanup(console, 'privilege_escalation')
             
             console.print()
+    
+    def _show_module_guide(self, console: Console):
+        """Show comprehensive module guide"""
+        guide_text = """[bold cyan]PE5 SYSTEM Escalation Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Kernel-level privilege escalation using APT-41 PE5 framework for SYSTEM privileges.
+
+[bold]Key Functions:[/bold]
+1. PE5 Mechanism - Complete technical breakdown of exploit
+2. Token Manipulation - Direct _EPROCESS.Token modification
+3. Token Stealing - Copy SYSTEM token to current process
+4. SYSCALL Execution - Kernel-level system call execution
+5. Windows PE Techniques - Additional privilege escalation methods
+6. Print Spooler Exploit - CVE-2021-1675 exploitation
+7. UAC Bypass - User Account Control bypass techniques
+8. SMBv3 Exploit - CVE-2020-0796 exploitation
+9. Verify Privileges - Check current privilege level
+10. Generate Report - Create comprehensive PE report
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1068 - Exploitation for Privilege Escalation
+• T1134 - Access Token Manipulation
+• T1078 - Valid Accounts
+• T1548 - Abuse Elevation Control Mechanism
+• T1055 - Process Injection
+
+[bold]Usage Tips:[/bold]
+• Start with option 1 to understand PE5 mechanism
+• Option 2-4 are core PE5 exploitation techniques
+• Options 6-8 are additional Windows exploits
+• Option 9 verifies if escalation was successful
+• Use AI guidance (h/help) for step-by-step instructions
+• Moonwalk automatically clears privilege escalation traces
+
+[bold]Best Practices:[/bold]
+• Understand the exploit mechanism before execution
+• Test in lab environment first
+• Verify privileges after escalation
+• Clear all traces after operations
+• Document exploitation steps for reporting"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="red"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

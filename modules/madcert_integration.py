@@ -351,15 +351,18 @@ class MADCertModule:
             table.add_row("6", "List Generated Certificates")
             table.add_row("7", "Export Certificate")
             table.add_row("8", "Certificate Usage Examples")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._find_madcert(console)
             elif choice == '2':
@@ -378,6 +381,47 @@ class MADCertModule:
                 self._usage_examples(console)
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]MADCert Certificate Generation Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Generate valid certificates for Active Directory environments to establish trust and enable credential access.
+
+[bold]Key Functions:[/bold]
+1. Find MADCert Installation - Locate MADCert tool
+2. Generate CA Certificate - Create Certificate Authority
+3. Generate Server Certificate - Create server certificates
+4. Generate Client Certificate - Create client certificates
+5. Generate Code Signing Certificate - Create code signing certs
+6. List Generated Certificates - View all generated certs
+7. Export Certificate - Export certificates for use
+8. Certificate Usage Examples - See usage examples
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1550 - Use Alternate Authentication Material
+• T1078 - Valid Accounts
+• T1484 - Domain Policy Modification
+• T1550.001 - Application Access Token
+• T1550.002 - Pass the Hash
+
+[bold]Usage Tips:[/bold]
+• Start with option 1 to locate MADCert installation
+• Generate CA first (option 2), then server/client certs
+• Use option 8 to see practical usage examples
+• Certificates can be used for AD authentication
+• Code signing certs enable trusted code execution
+
+[bold]Best Practices:[/bold]
+• Generate certificates with realistic names
+• Use certificates for stealthy authentication
+• Export certificates securely
+• Document certificate purposes"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _find_madcert(self, console: Console):
         """Find MADCert installation"""

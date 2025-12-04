@@ -40,15 +40,18 @@ class LateralModule:
             table.add_row("5", "DCOM / COM-based Movement [APT-41: Lateral Movement]")
             table.add_row("6", "SSH Tunneling & Port Forwarding [APT-41: Command and Control]")
             table.add_row("7", "APT-41 Custom Tools & Techniques")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._smb_rpc(console, session_data)
             elif choice == '2':
@@ -69,6 +72,49 @@ class LateralModule:
                 self._moonwalk_cleanup(console, 'lateral_movement')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Lateral Movement Channels Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Execute lateral movement using SMB/RPC, WinRM, WMI, and RDP.
+
+[bold]Key Functions:[/bold]
+1. SMB/RPC Movement - Use PsExec, WMIExec, or custom tools
+2. WinRM/PowerShell Remoting - Remote PowerShell execution
+3. WMI Execution - Windows Management Instrumentation
+4. RDP Pivoting - Remote Desktop Protocol tunneling
+5. DCOM/COM Movement - Distributed COM execution
+6. SSH Tunneling - Port forwarding and tunneling
+7. APT-41 Custom Tools - Specialized lateral movement tools
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1021 - Remote Services
+• T1072 - Software Deployment Tools
+• T1105 - Ingress Tool Transfer
+• T1570 - Lateral Tool Transfer
+• T1021.001 - Remote Desktop Protocol
+• T1021.002 - SMB/Windows Admin Shares
+• T1021.003 - Distributed Component Object Model
+
+[bold]Usage Tips:[/bold]
+• Option 1 (SMB/RPC) is most common and reliable
+• Option 2 (WinRM) requires PowerShell remoting enabled
+• Option 3 (WMI) is stealthy but slower
+• Option 4 (RDP) provides interactive access
+• Use credentials from Identity module for authentication
+• Moonwalk automatically clears lateral movement traces
+
+[bold]Best Practices:[/bold]
+• Use valid credentials from credential harvesting
+• Prefer native Windows tools (living off the land)
+• Test connectivity before attempting movement
+• Clear traces after each lateral movement operation"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

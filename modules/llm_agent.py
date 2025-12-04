@@ -649,12 +649,13 @@ class LLMAgentModule:
             table.add_row("3", "Server Status")
             table.add_row("4", "Test Code Generation")
             table.add_row("5", "Protocol Documentation")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '?'], default='0')
             
             if choice == '0':
                 if self.server and self.server.running:
@@ -676,8 +677,48 @@ class LLMAgentModule:
             
             elif choice == '5':
                 self._protocol_documentation(console)
+            elif choice == '?':
+                self._show_guide(console)
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]LLM Remote Agent Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Self-coding execution system with binary protocol communication for remote code generation and execution.
+
+[bold]Key Functions:[/bold]
+1. Start LLM Agent Server - Launch the remote agent server
+2. Stop LLM Agent Server - Stop the running server
+3. Server Status - Check server status and connections
+4. Test Code Generation - Test code generation capabilities
+5. Protocol Documentation - View MEMSHADOW protocol details
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1059 - Command and Scripting Interpreter
+• T1105 - Ingress Tool Transfer
+• T1566 - Phishing
+• T1059.001 - PowerShell
+• T1059.003 - Windows Command Shell
+
+[bold]Usage Tips:[/bold]
+• Start server (option 1) before connecting clients
+• Use option 4 to test code generation locally
+• Option 5 explains the MEMSHADOW binary protocol
+• Server listens on port 8888 by default
+• Clients can connect and request code generation
+
+[bold]Best Practices:[/bold]
+• Test code generation in lab environment first
+• Review generated code before execution
+• Use secure channels for production deployment
+• Monitor server logs for suspicious activity"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _start_server(self, console: Console, session_data: dict):
         """Start the LLM agent server"""

@@ -38,15 +38,18 @@ class FootholdModule:
             table.add_row("3", "What can this host see? (Network Visibility) [APT-41: Discovery]")
             table.add_row("4", "APT-41 Initial Access Techniques")
             table.add_row("5", "Generate foothold report")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._assess_identity(console, session_data)
             elif choice == '2':
@@ -63,6 +66,44 @@ class FootholdModule:
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Foothold & Starting Point Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Assess your initial SSH access point on Windows host and establish foothold.
+
+[bold]Key Functions:[/bold]
+1. Identity & Privileges - Check current user, groups, and privileges
+2. Host Role Classification - Determine if host is workstation, server, or DC
+3. Network Visibility - Discover network topology and reachable hosts
+4. APT-41 Initial Access - Common initial access techniques
+5. Generate Report - Create comprehensive foothold assessment report
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1078 - Valid Accounts
+• T1087.001 - Account Discovery: Local Accounts
+• T1087.002 - Account Discovery: Domain Accounts
+• T1018 - Remote System Discovery
+• T1082 - System Information Discovery
+• T1059 - Command and Scripting Interpreter
+
+[bold]Usage Tips:[/bold]
+• Start with option 1 to understand your current privileges
+• Use option 2 to identify high-value targets (DCs, file servers)
+• Option 3 helps map the network for lateral movement planning
+• Moonwalk automatically clears traces after each operation
+
+[bold]Best Practices:[/bold]
+• Document all findings for later reference
+• Identify service accounts for potential privilege escalation
+• Note network segments and firewall rules
+• Check for security software before proceeding"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _assess_identity(self, console: Console, session_data: dict):
         """Assess current identity and privileges"""

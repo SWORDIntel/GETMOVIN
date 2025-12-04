@@ -38,15 +38,18 @@ class ConsolidationModule:
             table.add_row("4", "Central Control Planes [APT-41: Persistence]")
             table.add_row("5", "Clean-up Considerations [APT-41: Defense Evasion]")
             table.add_row("6", "APT-41 Persistence Techniques")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._strategic_objectives(console, session_data)
             elif choice == '2':
@@ -65,6 +68,46 @@ class ConsolidationModule:
                 self._moonwalk_cleanup(console, 'persistence')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Consolidation & Dominance Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Strategic objectives, persistence, and environment-wide control.
+
+[bold]Key Functions:[/bold]
+1. Strategic Objectives - Define goals and priorities
+2. Domain Controller Access - Gain DC access for domain dominance
+3. Persistence Mechanisms - Scheduled tasks, services, registry
+4. Central Control Planes - C2 infrastructure and management
+5. Clean-up Considerations - Remove traces and artifacts
+6. APT-41 Persistence - Specialized persistence techniques
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1053 - Scheduled Task/Job
+• T1543 - Create or Modify System Process
+• T1112 - Modify Registry
+• T1484 - Domain Policy Modification
+• T1078 - Valid Accounts
+• T1134 - Access Token Manipulation
+
+[bold]Usage Tips:[/bold]
+• Option 2 (DC Access) is critical for domain control
+• Option 3 (Persistence) ensures continued access
+• Use multiple persistence mechanisms for redundancy
+• Option 5 (Clean-up) helps avoid detection
+• Moonwalk automatically clears persistence traces
+
+[bold]Best Practices:[/bold]
+• Establish persistence on multiple systems
+• Use legitimate-looking persistence mechanisms
+• Document all persistence methods for later cleanup
+• Test persistence mechanisms before relying on them"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

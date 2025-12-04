@@ -40,15 +40,18 @@ class OPSECModule:
             table.add_row("5", "Network OPSEC [APT-41: Command and Control]")
             table.add_row("6", "OPSEC Checklist")
             table.add_row("7", "APT-41 Defense Evasion Techniques")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._tool_selection(console, session_data)
             elif choice == '2':
@@ -69,6 +72,49 @@ class OPSECModule:
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]OPSEC Considerations Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Operational security best practices and evasion techniques.
+
+[bold]Key Functions:[/bold]
+1. Tool Selection - Use native Windows binaries (LOLBins)
+2. Detection Evasion - Avoid AV/EDR detection
+3. Logging Avoidance - Minimize log generation
+4. Behavioral Blending - Mimic legitimate user behavior
+5. Network OPSEC - Secure C2 communications
+6. OPSEC Checklist - Comprehensive security checklist
+7. APT-41 Defense Evasion - Specialized evasion techniques
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1562 - Impair Defenses
+• T1070 - Indicator Removal on Host
+• T1027 - Obfuscated Files or Information
+• T1497 - Virtualization/Sandbox Evasion
+• T1218 - Signed Binary Proxy Execution
+• T1055 - Process Injection
+
+[bold]Usage Tips:[/bold]
+• Option 1 emphasizes using native Windows tools
+• Option 2 helps avoid detection by security tools
+• Option 3 reduces forensic evidence
+• Option 4 makes activities look legitimate
+• Option 6 provides comprehensive OPSEC checklist
+• Moonwalk automatically clears traces (integrated OPSEC)
+
+[bold]Best Practices:[/bold]
+• Always use native Windows tools when possible
+• Minimize log generation and clear logs regularly
+• Blend in with normal user activity patterns
+• Use encryption for C2 communications
+• Test evasion techniques in lab environment first"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

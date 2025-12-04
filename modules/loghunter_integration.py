@@ -1042,15 +1042,18 @@ class LogHunterModule:
             table.add_row("4", "Hunt Privilege Escalation Events")
             table.add_row("5", "Custom Query")
             table.add_row("6", "Export Logs")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._find_loghunter(console)
             elif choice == '2':
@@ -1065,6 +1068,45 @@ class LogHunterModule:
                 self._export_logs(console)
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]LogHunter Integration Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Hunt through Windows event logs for security events, credential access, and lateral movement indicators.
+
+[bold]Key Functions:[/bold]
+1. Find LogHunter Installation - Locate LogHunter tool
+2. Hunt Credential Access Events - Find credential dumping activities
+3. Hunt Lateral Movement Indicators - Detect lateral movement
+4. Hunt Privilege Escalation Events - Find privilege escalation attempts
+5. Custom Query - Create custom log queries
+6. Export Logs - Export log data for analysis
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1055 - Process Injection
+• T1003 - OS Credential Dumping
+• T1021 - Remote Services
+• T1068 - Exploitation for Privilege Escalation
+• T1070 - Indicator Removal on Host
+
+[bold]Usage Tips:[/bold]
+• Start with option 1 to locate LogHunter
+• Use option 2 to find credential access activities
+• Option 3 helps detect lateral movement patterns
+• Option 5 allows custom queries for specific events
+• Option 6 exports logs for offline analysis
+
+[bold]Best Practices:[/bold]
+• Review logs regularly for security events
+• Export logs for detailed analysis
+• Use custom queries for specific threat hunting
+• Document findings for incident response"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _find_loghunter(self, console: Console):
         """Find LogHunter installation"""
@@ -1198,6 +1240,7 @@ class MoonwalkModule:
             table.add_row("5", "Clear Prefetch Files")
             table.add_row("6", "Clear Recent Files & Jump Lists")
             table.add_row("7", "Clear Temp Files")
+            table.add_row("?", "Module Guide - Usage instructions and TTPs")
             table.add_row("8", "Clear Browser History")
             table.add_row("9", "Clear Windows Defender Logs")
             table.add_row("10", "Clear Windows Artifacts (Thumbnails, WER, etc.)")
@@ -1208,10 +1251,12 @@ class MoonwalkModule:
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '?'], default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._clear_event_logs(console)
             elif choice == '2':
@@ -1238,6 +1283,52 @@ class MoonwalkModule:
                 self._full_cleanup(console)
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Windows Moonwalk Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Clear logs, timestamps, and traces to cover tracks and avoid detection.
+
+[bold]Key Functions:[/bold]
+1. Clear Event Logs - Remove Windows event log entries
+2. Clear PowerShell History - Remove PowerShell command history
+3. Clear Command History - Remove command prompt history
+4. Clear Registry Traces - Remove registry artifacts
+5. Clear Prefetch Files - Remove prefetch cache
+6. Clear Recent Files - Remove recent files and jump lists
+7. Clear Temp Files - Remove temporary files
+8. Clear Browser History - Remove browser artifacts
+9. Clear Windows Defender Logs - Remove AV logs
+10. Clear Windows Artifacts - Remove various Windows artifacts
+11. Clear Application Compatibility Cache - Remove AppCompat cache
+12. Full Cleanup - Complete moonwalk cleanup
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1070 - Indicator Removal on Host
+• T1562 - Impair Defenses
+• T1070.001 - Clear Windows Event Logs
+• T1070.003 - Clear Command History
+• T1070.004 - File Deletion
+
+[bold]Usage Tips:[/bold]
+• Option 1 clears event logs (most important)
+• Option 12 performs full cleanup automatically
+• Use after each operation to clear traces
+• Moonwalk is automatically enabled in all modules
+• Individual options allow selective cleanup
+
+[bold]Best Practices:[/bold]
+• Clear traces after each operation
+• Use full cleanup (option 12) for comprehensive removal
+• Clear event logs regularly during operations
+• Remove browser history if accessing web resources
+• Document cleanup activities for OPSEC"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _clear_event_logs(self, console: Console):
         """Clear event logs with fake log injection"""
