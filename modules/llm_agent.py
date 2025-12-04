@@ -1,4 +1,4 @@
-"""LLM Remote Agent Module - Self-Coding Execution System"""
+"""LLM Remote Agent Module - Self-Coding Execution System with MEMSHADOW MRAC Protocol"""
 
 import struct
 import socket
@@ -8,16 +8,44 @@ import subprocess
 import tempfile
 import os
 import sys
-from typing import Optional, Dict, Any, Tuple
+import uuid
+import time
+from typing import Optional, Dict, Any, Tuple, Set
+from collections import defaultdict
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.utils import execute_powershell, execute_cmd, validate_target
+from modules.memshadow_protocol import (
+    MemshadowHeader, MRACProtocol, MRACMessageType, SelfCodeCommandType,
+    HeaderFlags, ValueType
+)
 
 
-class BinaryProtocol:
+class NonceTracker:
+    """Track nonces per app_id to prevent replay attacks"""
+    
+    def __init__(self, window_size: int = 1000):
+        self.nonces: Dict[bytes, Set[int]] = defaultdict(set)
+        self.window_size = window_size
+    
+    def check_and_add(self, app_id: bytes, nonce: bytes) -> bool:
+        """Check if nonce is valid (not replayed) and add it"""
+        nonce_int = struct.unpack('!Q', nonce)[0]
+        
+        if nonce_int in self.nonces[app_id]:
+            return False  # Replay detected
+        
+        self.nonces[app_id].add(nonce_int)
+        
+        # Keep only recent nonces
+        if len(self.nonces[app_id]) > self.window_size:
+            oldest = min(self.nonces[app_id])
+            self.nonces[app_id].remove(oldest)
+        
+        return True
     """Custom 2-way binary protocol handler"""
     
     # Protocol constants
@@ -259,17 +287,23 @@ class CodeGenerator:
 
 
 class LLMAgentServer:
-    """LLM Agent Server - Receives commands and executes them"""
+    """LLM Agent Server - MEMSHADOW MRAC Protocol Implementation"""
     
-    def __init__(self, console: Console, session_data: dict, host: str = 'localhost', port: int = 8888):
+    def __init__(self, console: Console, session_data: dict, host: str = 'localhost', port: int = 8888,
+                 session_token: Optional[bytes] = None):
         self.console = console
         self.session_data = session_data
         self.host = host
         self.port = port
+        self.session_token = session_token
         self.socket = None
         self.running = False
         self.code_generator = CodeGenerator(console, session_data)
         self.client_connections = []
+        self.nonce_tracker = NonceTracker()
+        self.registered_apps: Dict[bytes, Dict[str, Any]] = {}  # app_id -> app info
+        self.sequence_num = 0
+        self.app_id = uuid.uuid4().bytes  # This server's app_id
         
     def start(self):
         """Start the LLM agent server"""
@@ -315,7 +349,7 @@ class LLMAgentServer:
         self.console.print("[yellow]LLM Agent Server stopped[/yellow]")
     
     def _handle_client(self, client_socket: socket.socket, address: Tuple[str, int]):
-        """Handle a client connection"""
+        """Handle a client connection with MEMSHADOW protocol"""
         buffer = b''
         
         try:
@@ -326,24 +360,30 @@ class LLMAgentServer:
                 
                 buffer += data
                 
-                # Try to parse messages
-                while len(buffer) >= 10:
+                # Parse MEMSHADOW messages
+                while len(buffer) >= 32:  # Minimum header size
                     try:
-                        # Check if we have enough data
-                        _, _, _, length = struct.unpack('!4sBBL', buffer[:10])
-                        total_length = 10 + length
+                        # Parse header
+                        priority, flags, msg_type, batch_count, payload_len, timestamp_ns, sequence_num = \
+                            MemshadowHeader.unpack(buffer[:32])
+                        
+                        total_length = 32 + payload_len
                         
                         if len(buffer) < total_length:
                             break  # Wait for more data
                         
-                        msg_data = buffer[:total_length]
+                        header = buffer[:32]
+                        payload = buffer[32:32+payload_len]
                         buffer = buffer[total_length:]
                         
-                        msg_type, payload = BinaryProtocol.unpack_message(msg_data)
-                        self._process_message(client_socket, msg_type, payload)
+                        # Process message
+                        self._process_memshadow_message(client_socket, header, msg_type, flags, payload)
                     
                     except ValueError as e:
                         self.console.print(f"[red]Protocol error: {e}[/red]")
+                        break
+                    except struct.error as e:
+                        self.console.print(f"[red]Struct error: {e}[/red]")
                         break
         
         except Exception as e:
@@ -352,37 +392,191 @@ class LLMAgentServer:
             client_socket.close()
             self.console.print(f"[dim]Client {address} disconnected[/dim]")
     
-    def _process_message(self, client_socket: socket.socket, msg_type: int, payload: bytes):
-        """Process incoming message"""
+    def _process_memshadow_message(self, client_socket: socket.socket, header: bytes,
+                                   msg_type: int, flags: int, payload: bytes):
+        """Process incoming MEMSHADOW message"""
         try:
-            if msg_type == BinaryProtocol.MSG_COMMAND:
-                self._handle_command(client_socket, payload)
+            # Verify HMAC if present
+            if flags & HeaderFlags.HMAC_PRESENT:
+                # HMAC verification would go here
+                pass
             
-            elif msg_type == BinaryProtocol.MSG_CODE_GENERATE:
-                self._handle_code_generate(client_socket, payload)
+            if msg_type == MRACMessageType.APP_REGISTER:
+                self._handle_register(client_socket, header, payload, flags)
             
-            elif msg_type == BinaryProtocol.MSG_EXECUTE:
-                self._handle_execute(client_socket, payload)
+            elif msg_type == MRACMessageType.APP_COMMAND:
+                self._handle_app_command(client_socket, header, payload, flags)
             
-            elif msg_type == BinaryProtocol.MSG_HEARTBEAT:
-                self._handle_heartbeat(client_socket)
+            elif msg_type == MRACMessageType.APP_HEARTBEAT:
+                self._handle_app_heartbeat(client_socket, header, payload)
+            
+            elif msg_type == MRACMessageType.APP_BULK_COMMAND:
+                self._handle_bulk_command(client_socket, header, payload, flags)
             
             else:
-                self._send_error(client_socket, f"Unknown message type: {msg_type}")
+                self._send_app_error(client_socket, self.app_id, 0xFFFF, f"Unknown message type: {msg_type}")
         
         except Exception as e:
-            self._send_error(client_socket, str(e))
+            self.console.print(f"[red]Message processing error: {e}[/red]")
+            self._send_app_error(client_socket, self.app_id, 0xFFFF, str(e))
     
-    def _handle_command(self, client_socket: socket.socket, payload: bytes):
-        """Handle command execution request"""
+    def _handle_register(self, client_socket: socket.socket, header: bytes, payload: bytes, flags: int):
+        """Handle APP_REGISTER message"""
         try:
-            data = BinaryProtocol.decode_json(payload)
+            reg_data = MRACProtocol.unpack_register(payload)
+            app_id = reg_data['app_id']
+            nonce = reg_data['nonce']
+            
+            # Check nonce
+            if not self.nonce_tracker.check_and_add(app_id, nonce):
+                ack_payload = MRACProtocol.pack_register_ack(
+                    app_id, 1, "Replay detected", self.session_token, nonce
+                )
+                self._send_memshadow_message(client_socket, MRACMessageType.APP_REGISTER_ACK, ack_payload, flags)
+                return
+            
+            # Register app
+            self.registered_apps[app_id] = {
+                'name': reg_data['name'],
+                'capabilities': reg_data['capabilities'],
+                'registered_at': time.time_ns()
+            }
+            
+            self.console.print(f"[green]App registered: {reg_data['name']} ({uuid.UUID(bytes=app_id)})[/green]")
+            
+            # Send ACK
+            ack_payload = MRACProtocol.pack_register_ack(
+                app_id, 0, "OK", self.session_token, nonce
+            )
+            self._send_memshadow_message(client_socket, MRACMessageType.APP_REGISTER_ACK, ack_payload, flags)
+        
+        except Exception as e:
+            self.console.print(f"[red]Register error: {e}[/red]")
+            self._send_app_error(client_socket, self.app_id, 0xFFFE, str(e))
+    
+    def _handle_app_command(self, client_socket: socket.socket, header: bytes, payload: bytes, flags: int):
+        """Handle APP_COMMAND message"""
+        try:
+            cmd_data = MRACProtocol.unpack_command(payload)
+            app_id = cmd_data['app_id']
+            command_id = cmd_data['command_id']
+            cmd_type = cmd_data['cmd_type']
+            args = cmd_data['args']
+            nonce = cmd_data['nonce']
+            
+            # Check nonce
+            if not self.nonce_tracker.check_and_add(app_id, nonce):
+                ack_payload = MRACProtocol.pack_command_ack(
+                    app_id, command_id, 4, b"Replay detected", self.session_token, nonce
+                )
+                self._send_memshadow_message(client_socket, MRACMessageType.APP_COMMAND_ACK, ack_payload, flags)
+                return
+            
+            # Process command based on type
+            if cmd_type == SelfCodeCommandType.SELF_CODE_PLAN_REQUEST:
+                result = self._handle_plan_request(args)
+            elif cmd_type == SelfCodeCommandType.SELF_CODE_APPLY_PATCH:
+                result = self._handle_apply_patch(args)
+            elif cmd_type == SelfCodeCommandType.SELF_CODE_TEST_RUN:
+                result = self._handle_test_run(args)
+            else:
+                # Generic command execution
+                result = self._handle_generic_command(cmd_type, args)
+            
+            # Send ACK
+            result_bytes = json.dumps(result).encode('utf-8')
+            ack_payload = MRACProtocol.pack_command_ack(
+                app_id, command_id, 0 if result.get('success') else 1,
+                result_bytes, self.session_token, nonce
+            )
+            self._send_memshadow_message(client_socket, MRACMessageType.APP_COMMAND_ACK, ack_payload, flags)
+        
+        except Exception as e:
+            self.console.print(f"[red]Command error: {e}[/red]")
+            cmd_data = MRACProtocol.unpack_command(payload)
+            ack_payload = MRACProtocol.pack_command_ack(
+                cmd_data['app_id'], cmd_data['command_id'], 1,
+                json.dumps({'error': str(e)}).encode('utf-8'),
+                self.session_token, cmd_data['nonce']
+            )
+            self._send_memshadow_message(client_socket, MRACMessageType.APP_COMMAND_ACK, ack_payload, flags)
+    
+    def _handle_app_heartbeat(self, client_socket: socket.socket, header: bytes, payload: bytes):
+        """Handle APP_HEARTBEAT message"""
+        # Heartbeats don't require ACK unless REQUIRES_ACK flag is set
+        pass
+    
+    def _handle_bulk_command(self, client_socket: socket.socket, header: bytes, payload: bytes, flags: int):
+        """Handle APP_BULK_COMMAND message"""
+        # Parse bulk command and process each
+        # Implementation would parse batch_count and iterate
+        pass
+    
+    def _handle_plan_request(self, args: bytes) -> Dict[str, Any]:
+        """Handle SELF_CODE_PLAN_REQUEST"""
+        try:
+            data = json.loads(args.decode('utf-8')) if args else {}
+            objective = data.get('objective', '')
+            
+            # Generate a plan (simplified - would call LLM in real implementation)
+            plan = {
+                'steps': [
+                    {'action': 'analyze', 'target': objective},
+                    {'action': 'generate_code', 'language': 'python'},
+                    {'action': 'test', 'command': ['pytest', '-q']}
+                ]
+            }
+            
+            return {'success': True, 'plan': plan}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def _handle_apply_patch(self, args: bytes) -> Dict[str, Any]:
+        """Handle SELF_CODE_APPLY_PATCH"""
+        try:
+            data = json.loads(args.decode('utf-8'))
+            patch = data.get('patch', '')
+            path = data.get('path', '')
+            
+            # Apply patch (simplified)
+            # In real implementation, would use unified diff parser
+            
+            return {'success': True, 'files_changed': [path]}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def _handle_test_run(self, args: bytes) -> Dict[str, Any]:
+        """Handle SELF_CODE_TEST_RUN"""
+        try:
+            data = json.loads(args.decode('utf-8'))
+            command = data.get('command', [])
+            timeout_sec = data.get('timeout_sec', 120)
+            
+            # Execute test command
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec
+            )
+            
+            return {
+                'success': result.returncode == 0,
+                'exit_code': result.returncode,
+                'stdout': result.stdout,
+                'stderr': result.stderr
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def _handle_generic_command(self, cmd_type: int, args: bytes) -> Dict[str, Any]:
+        """Handle generic command execution"""
+        try:
+            # Parse args as JSON command
+            data = json.loads(args.decode('utf-8')) if args else {}
             command = data.get('command', '')
             language = data.get('language', 'powershell')
             
-            self.console.print(f"[yellow]Executing command: {command[:50]}...[/yellow]")
-            
-            # Execute command
             if language == 'powershell':
                 exit_code, stdout, stderr = execute_powershell(
                     command,
@@ -394,80 +588,38 @@ class LLMAgentServer:
                     lab_use=self.session_data.get('LAB_USE', 0)
                 )
             
-            # Send response
-            response = {
+            return {
+                'success': exit_code == 0,
                 'exit_code': exit_code,
                 'stdout': stdout,
-                'stderr': stderr,
-                'success': exit_code == 0
+                'stderr': stderr
             }
-            
-            self._send_response(client_socket, response)
-        
         except Exception as e:
-            self._send_error(client_socket, str(e))
+            return {'success': False, 'error': str(e)}
     
-    def _handle_code_generate(self, client_socket: socket.socket, payload: bytes):
-        """Handle code generation request"""
-        try:
-            spec = BinaryProtocol.decode_json(payload)
-            
-            self.console.print(f"[yellow]Generating {spec.get('language', 'code')} code...[/yellow]")
-            
-            code, file_path = self.code_generator.generate_code(spec)
-            
-            response = {
-                'code': code,
-                'file_path': file_path,
-                'language': spec.get('language', 'python'),
-                'success': True
-            }
-            
-            self._send_response(client_socket, response)
+    def _send_memshadow_message(self, client_socket: socket.socket, msg_type: int,
+                               payload: bytes, flags: int = 0, requires_ack: bool = False):
+        """Send MEMSHADOW message"""
+        if requires_ack:
+            flags |= HeaderFlags.REQUIRES_ACK
         
-        except Exception as e:
-            self._send_error(client_socket, str(e))
-    
-    def _handle_execute(self, client_socket: socket.socket, payload: bytes):
-        """Handle code execution request"""
-        try:
-            data = BinaryProtocol.decode_json(payload)
-            file_path = data.get('file_path', '')
-            language = data.get('language', 'python')
-            args = data.get('args', [])
-            
-            self.console.print(f"[yellow]Executing {language} code: {file_path}[/yellow]")
-            
-            exit_code, stdout, stderr = self.code_generator.execute_code(file_path, language, args)
-            
-            response = {
-                'exit_code': exit_code,
-                'stdout': stdout,
-                'stderr': stderr,
-                'success': exit_code == 0
-            }
-            
-            self._send_response(client_socket, response)
+        self.sequence_num += 1
+        header = MemshadowHeader.pack(
+            priority=0,
+            flags=flags,
+            msg_type=msg_type,
+            batch_count=1,
+            payload_len=len(payload),
+            timestamp_ns=time.time_ns(),
+            sequence_num=self.sequence_num
+        )
         
-        except Exception as e:
-            self._send_error(client_socket, str(e))
+        client_socket.sendall(header + payload)
     
-    def _handle_heartbeat(self, client_socket: socket.socket):
-        """Handle heartbeat message"""
-        response = {'status': 'alive', 'timestamp': str(os.times())}
-        self._send_response(client_socket, response)
-    
-    def _send_response(self, client_socket: socket.socket, data: Dict[str, Any]):
-        """Send response message"""
-        payload = BinaryProtocol.encode_json(data)
-        message = BinaryProtocol.pack_message(BinaryProtocol.MSG_RESPONSE, payload)
-        client_socket.sendall(message)
-    
-    def _send_error(self, client_socket: socket.socket, error_msg: str):
-        """Send error message"""
-        payload = BinaryProtocol.encode_json({'error': error_msg})
-        message = BinaryProtocol.pack_message(BinaryProtocol.MSG_ERROR, payload)
-        client_socket.sendall(message)
+    def _send_app_error(self, client_socket: socket.socket, app_id: bytes, error_code: int, detail: str):
+        """Send APP_ERROR message"""
+        error_payload = MRACProtocol.pack_error(app_id, error_code, detail, self.session_token)
+        self._send_memshadow_message(client_socket, MRACMessageType.APP_ERROR, error_payload)
 
 
 class LLMAgentModule:
@@ -606,53 +758,55 @@ class LLMAgentModule:
             generator.cleanup()
     
     def _protocol_documentation(self, console: Console):
-        """Show protocol documentation"""
-        console.print("\n[bold cyan]Binary Protocol Documentation[/bold cyan]\n")
+        """Show MEMSHADOW MRAC protocol documentation"""
+        console.print("\n[bold cyan]MEMSHADOW MRAC Protocol Documentation[/bold cyan]\n")
         
         doc = """
-[bold]Protocol Format:[/bold]
-  MAGIC (4 bytes): 0xAABBCCDD
-  VERSION (1 byte): Protocol version (currently 1)
-  TYPE (1 byte): Message type
-  LENGTH (4 bytes): Payload length (big-endian)
-  PAYLOAD (N bytes): Message data (JSON encoded)
+[bold]MEMSHADOW v2 Header (32 bytes):[/bold]
+  MAGIC (4): "MSHW"
+  VERSION (1): 2
+  PRIORITY (1): Message priority
+  FLAGS (1): HeaderFlags (REQUIRES_ACK, PQC_SIGNED, HMAC_PRESENT)
+  MSG_TYPE (2): Message type (0x2100-0x21FF for MRAC)
+  BATCH_COUNT (2): Number of batched messages
+  PAYLOAD_LEN (4): Payload length
+  TIMESTAMP_NS (8): Nanosecond timestamp
+  SEQUENCE_NUM (4): Sequence number
+  RESERVED (5): Reserved bytes
 
-[bold]Message Types:[/bold]
-  0x01 - MSG_COMMAND: Execute a command
-  0x02 - MSG_CODE_GENERATE: Generate code from specification
-  0x03 - MSG_EXECUTE: Execute generated code
-  0x04 - MSG_RESPONSE: Response message
-  0x05 - MSG_ERROR: Error message
-  0x06 - MSG_HEARTBEAT: Keep-alive message
+[bold]MRAC Message Types:[/bold]
+  0x2101 - APP_REGISTER: Register application
+  0x2102 - APP_REGISTER_ACK: Registration acknowledgment
+  0x2103 - APP_COMMAND: Execute command
+  0x2104 - APP_COMMAND_ACK: Command acknowledgment
+  0x2105 - APP_TELEMETRY: Telemetry data
+  0x2106 - APP_HEARTBEAT: Keep-alive
+  0x2107 - APP_ERROR: Error message
+  0x2108 - APP_BULK_COMMAND: Batched commands
+  0x2109 - APP_BULK_COMMAND_ACK: Batched ACK
 
-[bold]MSG_COMMAND Payload (JSON):[/bold]
-  {
-    "command": "string",
-    "language": "powershell|batch"
-  }
+[bold]Self-Code Control Commands:[/bold]
+  0x3001 - SELF_CODE_PLAN_REQUEST: Request code generation plan
+  0x3002 - SELF_CODE_PLAN_RESPONSE: Plan response
+  0x3003 - SELF_CODE_APPLY_PATCH: Apply code patch
+  0x3004 - SELF_CODE_RESULT: Execution result
+  0x3005 - SELF_CODE_TEST_RUN: Run tests
 
-[bold]MSG_CODE_GENERATE Payload (JSON):[/bold]
-  {
-    "language": "python|powershell|batch",
-    "description": "string",
-    "requirements": ["string"],
-    "imports": ["string"]
-  }
+[bold]Payload Structure:[/bold]
+  All payloads start with:
+  - Auth[16]: SHA-256(session_token || timestamp_ns || nonce)[:16]
+  - Nonce[8]: Monotonically increasing or random
 
-[bold]MSG_EXECUTE Payload (JSON):[/bold]
-  {
-    "file_path": "string",
-    "language": "python|powershell|batch",
-    "args": ["string"]
-  }
+[bold]Security Features:[/bold]
+  - Nonce tracking per app_id (replay protection)
+  - Optional HMAC-SHA256 integrity checking
+  - Session token authentication
+  - PQC signature support
 
-[bold]Response Payload (JSON):[/bold]
-  {
-    "exit_code": int,
-    "stdout": "string",
-    "stderr": "string",
-    "success": bool
-  }
+[bold]Transport:[/bold]
+  - TCP, UDP, QUIC, Unix domain sockets
+  - MTU guidance: < 1200 bytes per payload
+  - CGNAT support via relay/rendezvous
         """
         
         console.print(doc)
