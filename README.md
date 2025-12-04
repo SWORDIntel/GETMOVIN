@@ -1,6 +1,6 @@
-# Windows Lateral Movement Simulation TUI
+# WW-SLAM : WIndows-Spcieic Lateral Access / Movement tool
 
-**Red Team / Threat Modeling Tool for Windows Environments**
+**Red team enumeration and movement plus full tooling for complex systems**
 
 A comprehensive, self-contained Terminal User Interface (TUI) tool for simulating and modeling Windows lateral movement techniques, aligned with APT-41 (Winnti Group) Tactics, Techniques, and Procedures (TTPs) and MITRE ATT&CK framework.
 
@@ -727,16 +727,9 @@ python -m pytest
 # Run linter (if configured)
 pylint modules/
 ```
-
-## 📄 License
-
-**For authorized security testing only.**
-
-This tool is provided for legitimate security testing, threat modeling, and authorized penetration testing purposes only. Unauthorized use is illegal and unethical.
-
 ## 🙏 Acknowledgments
 
-- **APT-41 (Winnti Group)** - TTP reference and PE5 framework
+- **APT-41 (Winnti Group)** - TTP reference and PE5 framework(Thanks you fucks for your malware!)
 - **MITRE ATT&CK** - Framework and technique mappings
 - **LogHunter** - Windows event log analysis
 - **MADCert** - Certificate generation
