@@ -21,7 +21,8 @@ class IdentityModule:
         while True:
             console.print(Panel(
                 "[bold]Identity Acquisition[/bold]\n\n"
-                "Harvest credentials and understand domain context for lateral movement.",
+                "Harvest credentials and understand domain context for lateral movement.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 3",
                 border_style="cyan"
             ))
@@ -62,8 +63,8 @@ class IdentityModule:
             elif choice == '7':
                 self._lsass_dumping(console, session_data)
             
-            # Moonwalk cleanup after credential access operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after credential access operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'credential_access')
             
             console.print()

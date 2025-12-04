@@ -21,7 +21,8 @@ class ConsolidationModule:
         while True:
             console.print(Panel(
                 "[bold]Consolidation & Dominance[/bold]\n\n"
-                "Strategic objectives, persistence, and environment-wide control.",
+                "Strategic objectives, persistence, and environment-wide control.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 5",
                 border_style="cyan"
             ))
@@ -59,8 +60,8 @@ class ConsolidationModule:
             elif choice == '6':
                 self._apt41_persistence(console, session_data)
             
-            # Moonwalk cleanup after persistence operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after persistence operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'persistence')
             
             console.print()

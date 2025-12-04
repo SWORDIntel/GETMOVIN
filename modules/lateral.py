@@ -22,7 +22,8 @@ class LateralModule:
         while True:
             console.print(Panel(
                 "[bold]Lateral Movement Channels[/bold]\n\n"
-                "Execute lateral movement using SMB/RPC, WinRM, WMI, and RDP.",
+                "Execute lateral movement using SMB/RPC, WinRM, WMI, and RDP.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 4",
                 border_style="cyan"
             ))
@@ -63,8 +64,8 @@ class LateralModule:
             elif choice == '7':
                 self._apt41_lateral_tools(console, session_data)
             
-            # Moonwalk cleanup after lateral movement operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after lateral movement operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'lateral_movement')
             
             console.print()

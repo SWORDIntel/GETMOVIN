@@ -22,7 +22,8 @@ class OrientationModule:
         while True:
             console.print(Panel(
                 "[bold]Local Orientation[/bold]\n\n"
-                "Understand identity, host role, and network visibility from beachhead.",
+                "Understand identity, host role, and network visibility from beachhead.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 2",
                 border_style="cyan"
             ))
@@ -60,8 +61,8 @@ class OrientationModule:
             elif choice == '6':
                 self._security_software_discovery(console, session_data)
             
-            # Moonwalk cleanup after operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()

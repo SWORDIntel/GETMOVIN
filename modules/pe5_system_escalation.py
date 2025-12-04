@@ -59,7 +59,8 @@ class PE5SystemEscalationModule:
             banner_text.append("PE5 SYSTEM Privilege Escalation\n", style="bold cyan")
             banner_text.append("PRIMARY PRIVILEGE ESCALATION METHOD\n\n", style="bold yellow")
             banner_text.append("Kernel-level token manipulation for SYSTEM privileges.\n", style="white")
-            banner_text.append("Based on APT-41 PE5 exploit framework.\n\n", style="dim white")
+            banner_text.append("Based on APT-41 PE5 exploit framework.\n", style="dim white")
+            banner_text.append("Moonwalk: Auto-clearing logs and traces after each operation\n\n", style="dim yellow")
             banner_text.append("💡 Tip: Type 'h' or 'help' for AI guidance on any function\n", style="dim cyan")
             banner_text.append("📖 Use '?' after selecting a function for detailed usage\n", style="dim cyan")
             
@@ -150,8 +151,28 @@ class PE5SystemEscalationModule:
             if choice not in ['0', 'h', '?']:
                 if Confirm.ask("\n[bold cyan]Need help with this function? (AI guidance)[/bold cyan]", default=False):
                     self._contextual_help(console, session_data, choice)
+                
+                # Moonwalk cleanup after operations (enabled by default)
+                self._moonwalk_cleanup(console, 'privilege_escalation')
             
             console.print()
+    
+    def _moonwalk_cleanup(self, console: Console, operation_type: str):
+        """Perform moonwalk cleanup after operation"""
+        try:
+            console.print("\n[yellow]Running moonwalk cleanup...[/yellow]")
+            results = self.moonwalk.cleanup_after_operation(operation_type)
+            
+            if results.get('event_logs', {}).get('cleared'):
+                console.print(f"[green]Cleared {len(results['event_logs']['cleared'])} event logs[/green]")
+            if results.get('powershell_history'):
+                console.print("[green]Cleared PowerShell history[/green]")
+            if results.get('command_history'):
+                console.print("[green]Cleared command history[/green]")
+            if results.get('registry'):
+                console.print("[green]Cleared registry traces[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Moonwalk cleanup error: {e}[/yellow]")
     
     def _pe5_mechanism(self, console: Console, session_data: dict):
         """Explain PE5 kernel exploit mechanism"""

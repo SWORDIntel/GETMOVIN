@@ -22,7 +22,8 @@ class FootholdModule:
         while True:
             console.print(Panel(
                 "[bold]Foothold Assessment[/bold]\n\n"
-                "Assess your initial SSH access point on Windows host.",
+                "Assess your initial SSH access point on Windows host.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 1",
                 border_style="cyan"
             ))
@@ -57,8 +58,8 @@ class FootholdModule:
             elif choice == '5':
                 self._generate_report(console, session_data)
             
-            # Moonwalk cleanup after operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()

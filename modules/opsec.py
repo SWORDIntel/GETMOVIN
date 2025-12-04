@@ -22,7 +22,8 @@ class OPSECModule:
         while True:
             console.print(Panel(
                 "[bold]OPSEC Considerations[/bold]\n\n"
-                "Operational security best practices and evasion techniques.",
+                "Operational security best practices and evasion techniques.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 6",
                 border_style="cyan"
             ))
@@ -63,8 +64,8 @@ class OPSECModule:
             elif choice == '7':
                 self._apt41_defense_evasion(console, session_data)
             
-            # Moonwalk cleanup after OPSEC operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after OPSEC operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()
