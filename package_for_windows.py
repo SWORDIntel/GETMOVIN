@@ -57,6 +57,9 @@ class WindowsPackager:
         # Copy offline dependencies if they exist
         self._copy_offline_deps()
         
+        # Copy bundled Python if it exists
+        self._copy_bundled_python()
+        
         # Create Windows-specific files
         self._create_windows_files()
         
@@ -147,10 +150,34 @@ class WindowsPackager:
         deps_src = self.workspace_root / 'offline_deps'
         if deps_src.exists() and deps_src.is_dir():
             deps_dst = self.package_dir / 'offline_deps'
-            shutil.copytree(deps_src, deps_dst)
-            print(f"  [✓] Copied offline_deps/ ({len(list(deps_src.glob('*')))} files)")
+            # Copy everything except python directory (handled separately)
+            deps_dst.mkdir(parents=True, exist_ok=True)
+            for item in deps_src.iterdir():
+                if item.name != 'python':  # Skip python, handled separately
+                    if item.is_dir():
+                        shutil.copytree(item, deps_dst / item.name, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item, deps_dst / item.name)
+            print(f"  [✓] Copied offline_deps/")
         else:
             print(f"  [!] offline_deps/ not found - Windows setup will download from internet")
+    
+    def _copy_bundled_python(self):
+        """Copy bundled Python if it exists"""
+        python_src = self.workspace_root / 'offline_deps' / 'python'
+        if python_src.exists() and python_src.is_dir():
+            python_dst = self.package_dir / 'python'
+            shutil.copytree(python_src, python_dst)
+            print(f"  [✓] Copied bundled Python")
+            
+            # Check for version info
+            version_file = python_dst / 'VERSION'
+            if version_file.exists():
+                version_info = version_file.read_text().strip().split('\n')
+                if len(version_info) >= 2:
+                    print(f"      Python {version_info[0]} ({version_info[1]})")
+        else:
+            print(f"  [!] Bundled Python not found - Windows setup will use system Python")
     
     def _create_windows_files(self):
         """Create Windows-specific files"""
@@ -167,10 +194,42 @@ echo Setup Script
 echo ========================================
 echo.
 
-REM Check Python
-python --version >nul 2>&1
+REM Check for bundled Python first (preferred)
+set PYTHON_EXE=
+set PYTHON_DIR=
+
+if exist "python\\" (
+    REM Find Python executable in bundled Python
+    for /d %%d in (python\\python-*) do (
+        if exist "%%d\\python.exe" (
+            set PYTHON_DIR=%%d
+            set PYTHON_EXE=%%d\\python.exe
+            echo [*] Found bundled Python: %%d
+            goto :found_python
+        )
+    )
+)
+
+:found_python
+REM If no bundled Python, check system Python
+if "%PYTHON_EXE%"=="" (
+    python --version >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Python not found.
+        echo [ERROR] Please install Python 3.8+ from python.org
+        echo [ERROR] Or use bundled Python by running: download_deps.py --windows --include-python
+        pause
+        exit /b 1
+    )
+    set PYTHON_EXE=python
+    echo [*] Using system Python
+)
+
+REM Verify Python version
+echo [*] Checking Python version...
+%PYTHON_EXE% --version
 if errorlevel 1 (
-    echo [ERROR] Python not found. Please install Python 3.8+ from python.org
+    echo [ERROR] Python executable not working: %PYTHON_EXE%
     pause
     exit /b 1
 )
@@ -178,7 +237,7 @@ if errorlevel 1 (
 REM Create virtual environment
 if not exist "venv\\" (
     echo [*] Creating virtual environment...
-    python -m venv venv
+    %PYTHON_EXE% -m venv venv
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment
         pause
