@@ -29,7 +29,7 @@ python3 package_for_windows.py
 # On Windows: Run setup_windows.bat
 ```
 
-See [QUICKSTART.md](QUICKSTART.md) for detailed quick start guide.
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 
 ## ✨ Features
 
@@ -170,18 +170,22 @@ python main.py
 
 #### On Linux (Preparation)
 
-**Step 1: Download Dependencies (Optional but Recommended)**
+**Step 1: Download Dependencies and Python (Optional but Recommended)**
 
-Download all dependencies for offline installation on Windows:
+Download all dependencies and optionally Python itself for offline installation on Windows:
 
 ```bash
 # Download Windows-compatible dependencies
 python3 download_deps.py --windows
 
+# Download dependencies AND Python embeddable package (fully self-contained)
+python3 download_deps.py --windows --include-python
+
 # Or specify Python version and architecture
-python3 download_deps.py --windows --python-version 3.9 --arch amd64
+python3 download_deps.py --windows --include-python --python-version 3.11 --arch amd64
 
 # This creates: offline_deps/ directory with all dependency files
+# If --include-python is used: offline_deps/python/ with Python embeddable package
 ```
 
 **Step 2: Create Windows Package**
@@ -213,13 +217,22 @@ run_windows.bat
 - ✅ **Works in air-gapped environments**
 - ✅ **Reproducible deployments** (same dependency versions)
 
+**Benefits of Bundled Python (`--include-python`):**
+- ✅ **No Python installation required** on Windows PC
+- ✅ **Works even if Python is not installed** on target system
+- ✅ **Uses specific Python version** you tested with
+- ✅ **Fully self-contained** deployment package
+- ✅ **Bundled Python is used preferentially** if available
+
 **How It Works:**
 - The `download_deps.py` script downloads all Python packages (wheels and source distributions) to `offline_deps/`
-- The `package_for_windows.py` script automatically includes `offline_deps/` if it exists
-- The Windows `setup_windows.bat` script automatically detects and uses `offline_deps/` for installation
+- With `--include-python`, it also downloads Python embeddable package to `offline_deps/python/`
+- The `package_for_windows.py` script automatically includes `offline_deps/` and bundled Python if they exist
+- The Windows `setup_windows.bat` script automatically detects and uses bundled Python preferentially
+- If bundled Python is not found, it falls back to system Python
 - If `offline_deps/` is not found, the setup script falls back to downloading from the internet
 
-See [CROSS_PLATFORM.md](CROSS_PLATFORM.md) for detailed cross-platform guide.
+See [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md) for detailed cross-platform guide.
 
 ## ⚙️ Configuration
 
@@ -451,7 +464,7 @@ The tool automatically:
 3. Reports component availability
 4. Handles missing components gracefully
 
-See [BOOTSTRAP.md](BOOTSTRAP.md) for bootstrap details.
+See [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) for bootstrap details.
 
 ### Relay Architecture
 
@@ -576,16 +589,18 @@ Coverage reports are generated in multiple formats:
 
 ### Core Documentation
 
-- **[QUICKSTART.md](QUICKSTART.md)** - Quick start guide
-- **[BOOTSTRAP.md](BOOTSTRAP.md)** - Auto-bootstrap process
-- **[CROSS_PLATFORM.md](CROSS_PLATFORM.md)** - Cross-platform setup
-- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Project organization
+- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - Quick start guide
+- **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** - Auto-bootstrap process
+- **[docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)** - Cross-platform setup
+- **[docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Project organization
 
 ### Utility Scripts
 
-- **`download_deps.py`** - Download dependencies for offline installation
+- **`download_deps.py`** - Download dependencies and optionally Python for offline installation
   ```bash
   python3 download_deps.py --windows  # Download Windows dependencies
+  python3 download_deps.py --windows --include-python  # Include Python embeddable package
+  python3 download_deps.py --windows --include-python --python-version 3.11 --arch amd64
   ```
 - **`package_for_windows.py`** - Create Windows deployment package
   ```bash
@@ -604,7 +619,7 @@ Coverage reports are generated in multiple formats:
 
 ### Installation Guides
 
-- **[INSTALL.md](INSTALL.md)** - Detailed installation guide
+- **[docs/INSTALL.md](docs/INSTALL.md)** - Detailed installation guide
 
 ## 🔧 Troubleshooting
 
@@ -732,13 +747,13 @@ This tool is provided for legitimate security testing, threat modeling, and auth
 For issues, questions, or contributions:
 
 - **Documentation**: See `docs/` directory
-- **Quick Start**: See [QUICKSTART.md](QUICKSTART.md)
-- **Installation**: See [INSTALL.md](INSTALL.md)
+- **Quick Start**: See [docs/QUICKSTART.md](docs/QUICKSTART.md)
+- **Installation**: See [docs/INSTALL.md](docs/INSTALL.md)
 - **Troubleshooting**: See [Troubleshooting](#troubleshooting) section
 
 ## 🔄 Version History
 
-See [CHANGELOG.md](CHANGELOG.md) for version history and changes.
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) for version history and changes.
 
 ## 📊 Project Status
 

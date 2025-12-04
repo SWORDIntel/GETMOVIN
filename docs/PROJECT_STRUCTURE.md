@@ -43,8 +43,9 @@ Complete overview of the Windows Lateral Movement Simulation TUI project structu
     ├── LOLBins_Reference.md
     └── MADCert_Integration.md
 │
-└── examples/              # Example scripts
-    └── llm_agent_example.py
+└── docs/
+    └── examples/          # Example scripts
+        └── llm_agent_example.py
 ```
 
 ## Key Files

@@ -80,8 +80,9 @@ run.bat
 │   ├── PE5_UI_Integration.md
 │   ├── remote_guided_relay.md
 │   └── ...
-└── examples/                   # Example scripts
-    └── llm_agent_example.py
+└── docs/
+    └── examples/               # Example scripts
+        └── llm_agent_example.py
 ```
 
 ### Optional Components (Gracefully Handled)

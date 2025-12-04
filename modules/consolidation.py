@@ -6,6 +6,7 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.loghunter_integration import WindowsMoonwalk
+from modules.utils import select_menu_option, execute_powershell
 
 
 class ConsolidationModule:
@@ -21,7 +22,8 @@ class ConsolidationModule:
         while True:
             console.print(Panel(
                 "[bold]Consolidation & Dominance[/bold]\n\n"
-                "Strategic objectives, persistence, and environment-wide control.",
+                "Strategic objectives, persistence, and environment-wide control.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 5",
                 border_style="cyan"
             ))
@@ -31,21 +33,23 @@ class ConsolidationModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Strategic Objectives [APT-41: Objectives]")
-            table.add_row("2", "Domain Controller Access [APT-41: Credential Access]")
-            table.add_row("3", "Persistence Mechanisms [APT-41: Persistence]")
-            table.add_row("4", "Central Control Planes [APT-41: Persistence]")
-            table.add_row("5", "Clean-up Considerations [APT-41: Defense Evasion]")
-            table.add_row("6", "APT-41 Persistence Techniques")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Strategic Objectives [APT-41: Objectives]'},
+                {'key': '2', 'label': 'Domain Controller Access [APT-41: Credential Access]'},
+                {'key': '3', 'label': 'Persistence Mechanisms [APT-41: Persistence]'},
+                {'key': '4', 'label': 'Central Control Planes [APT-41: Persistence]'},
+                {'key': '5', 'label': 'Clean-up Considerations [APT-41: Defense Evasion]'},
+                {'key': '6', 'label': 'APT-41 Persistence Techniques'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._strategic_objectives(console, session_data)
             elif choice == '2':
@@ -59,11 +63,51 @@ class ConsolidationModule:
             elif choice == '6':
                 self._apt41_persistence(console, session_data)
             
-            # Moonwalk cleanup after persistence operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after persistence operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'persistence')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]Consolidation & Dominance Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Strategic objectives, persistence, and environment-wide control.
+
+[bold]Key Functions:[/bold]
+1. Strategic Objectives - Define goals and priorities
+2. Domain Controller Access - Gain DC access for domain dominance
+3. Persistence Mechanisms - Scheduled tasks, services, registry
+4. Central Control Planes - C2 infrastructure and management
+5. Clean-up Considerations - Remove traces and artifacts
+6. APT-41 Persistence - Specialized persistence techniques
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1053 - Scheduled Task/Job
+• T1543 - Create or Modify System Process
+• T1112 - Modify Registry
+• T1484 - Domain Policy Modification
+• T1078 - Valid Accounts
+• T1134 - Access Token Manipulation
+
+[bold]Usage Tips:[/bold]
+• Option 2 (DC Access) is critical for domain control
+• Option 3 (Persistence) ensures continued access
+• Use multiple persistence mechanisms for redundancy
+• Option 5 (Clean-up) helps avoid detection
+• Moonwalk automatically clears persistence traces
+
+[bold]Best Practices:[/bold]
+• Establish persistence on multiple systems
+• Use legitimate-looking persistence mechanisms
+• Document all persistence methods for later cleanup
+• Test persistence mechanisms before relying on them"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

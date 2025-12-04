@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_powershell
+from modules.utils import execute_powershell, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -22,7 +22,8 @@ class OPSECModule:
         while True:
             console.print(Panel(
                 "[bold]OPSEC Considerations[/bold]\n\n"
-                "Operational security best practices and evasion techniques.",
+                "Operational security best practices and evasion techniques.\n"
+                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
                 title="Module 6",
                 border_style="cyan"
             ))
@@ -32,22 +33,24 @@ class OPSECModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Tool Selection & Native Binaries [APT-41: Defense Evasion]")
-            table.add_row("2", "Detection Evasion [APT-41: Defense Evasion]")
-            table.add_row("3", "Logging & Monitoring Avoidance [APT-41: Defense Evasion]")
-            table.add_row("4", "Behavioral Blending [APT-41: Defense Evasion]")
-            table.add_row("5", "Network OPSEC [APT-41: Command and Control]")
-            table.add_row("6", "OPSEC Checklist")
-            table.add_row("7", "APT-41 Defense Evasion Techniques")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Tool Selection & Native Binaries [APT-41: Defense Evasion]'},
+                {'key': '2', 'label': 'Detection Evasion [APT-41: Defense Evasion]'},
+                {'key': '3', 'label': 'Logging & Monitoring Avoidance [APT-41: Defense Evasion]'},
+                {'key': '4', 'label': 'Behavioral Blending [APT-41: Defense Evasion]'},
+                {'key': '5', 'label': 'Network OPSEC [APT-41: Command and Control]'},
+                {'key': '6', 'label': 'OPSEC Checklist'},
+                {'key': '7', 'label': 'APT-41 Defense Evasion Techniques'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break
+            elif choice == '?':
+                self._show_guide(console)
             elif choice == '1':
                 self._tool_selection(console, session_data)
             elif choice == '2':
@@ -63,11 +66,54 @@ class OPSECModule:
             elif choice == '7':
                 self._apt41_defense_evasion(console, session_data)
             
-            # Moonwalk cleanup after OPSEC operations
-            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+            # Moonwalk cleanup after OPSEC operations (enabled by default)
+            if choice != '0':
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()
+    
+    def _show_guide(self, console: Console):
+        """Show module guide"""
+        guide_text = """[bold cyan]OPSEC Considerations Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Operational security best practices and evasion techniques.
+
+[bold]Key Functions:[/bold]
+1. Tool Selection - Use native Windows binaries (LOLBins)
+2. Detection Evasion - Avoid AV/EDR detection
+3. Logging Avoidance - Minimize log generation
+4. Behavioral Blending - Mimic legitimate user behavior
+5. Network OPSEC - Secure C2 communications
+6. OPSEC Checklist - Comprehensive security checklist
+7. APT-41 Defense Evasion - Specialized evasion techniques
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1562 - Impair Defenses
+• T1070 - Indicator Removal on Host
+• T1027 - Obfuscated Files or Information
+• T1497 - Virtualization/Sandbox Evasion
+• T1218 - Signed Binary Proxy Execution
+• T1055 - Process Injection
+
+[bold]Usage Tips:[/bold]
+• Option 1 emphasizes using native Windows tools
+• Option 2 helps avoid detection by security tools
+• Option 3 reduces forensic evidence
+• Option 4 makes activities look legitimate
+• Option 6 provides comprehensive OPSEC checklist
+• Moonwalk automatically clears traces (integrated OPSEC)
+
+[bold]Best Practices:[/bold]
+• Always use native Windows tools when possible
+• Minimize log generation and clear logs regularly
+• Blend in with normal user activity patterns
+• Use encryption for C2 communications
+• Test evasion techniques in lab environment first"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

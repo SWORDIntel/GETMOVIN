@@ -12,6 +12,11 @@ import subprocess
 import shutil
 from pathlib import Path
 import argparse
+import urllib.request
+import urllib.error
+import json
+import zipfile
+import tempfile
 
 
 class DependencyDownloader:
@@ -21,6 +26,7 @@ class DependencyDownloader:
         self.deps_dir = Path(deps_dir)
         self.requirements_file = Path(requirements_file)
         self.workspace_root = Path(__file__).parent
+        self.python_dir = self.deps_dir / "python"
     
     def download_dependencies(self, python_version: str = None, platform: str = None):
         """
@@ -119,6 +125,107 @@ class DependencyDownloader:
             shutil.copy2(self.requirements_file, deps_req)
             print(f"[+] Created {deps_req}")
     
+    def download_python(self, python_version: str = "3.11", arch: str = "amd64"):
+        """
+        Download Python embeddable package for Windows
+        
+        Args:
+            python_version: Python version (e.g., "3.11")
+            arch: Architecture ("amd64" or "win32")
+        """
+        print(f"[*] Downloading Python {python_version} embeddable package for Windows ({arch})...")
+        
+        # Parse version
+        major, minor = python_version.split('.')[:2]
+        version_str = f"{major}.{minor}"
+        
+        # Determine architecture string for download
+        if arch == "32":
+            arch_str = "win32"
+            arch_dir = "win32"
+        else:
+            arch_str = "amd64"
+            arch_dir = "amd64"
+        
+        # Python embeddable download URL
+        # Format: https://www.python.org/ftp/python/3.11.0/python-3.11.0-embed-amd64.zip
+        # We'll try to get the latest patch version for the given minor version
+        base_url = f"https://www.python.org/ftp/python/{version_str}.0/python-{version_str}.0-embed-{arch_str}.zip"
+        
+        # Alternative: try to find latest patch version
+        # For now, we'll use a known good URL pattern
+        python_dir = self.python_dir
+        python_dir.mkdir(parents=True, exist_ok=True)
+        
+        zip_path = python_dir / f"python-{version_str}-embed-{arch_str}.zip"
+        
+        # Check if already downloaded
+        if zip_path.exists():
+            print(f"[*] Python already downloaded: {zip_path}")
+            return True
+        
+        # Try downloading from Python.org
+        urls_to_try = [
+            base_url,
+            f"https://www.python.org/ftp/python/{version_str}.1/python-{version_str}.1-embed-{arch_str}.zip",
+            f"https://www.python.org/ftp/python/{version_str}.2/python-{version_str}.2-embed-{arch_str}.zip",
+            f"https://www.python.org/ftp/python/{version_str}.3/python-{version_str}.3-embed-{arch_str}.zip",
+            f"https://www.python.org/ftp/python/{version_str}.4/python-{version_str}.4-embed-{arch_str}.zip",
+            f"https://www.python.org/ftp/python/{version_str}.5/python-{version_str}.5-embed-{arch_str}.zip",
+        ]
+        
+        downloaded = False
+        for url in urls_to_try:
+            try:
+                print(f"[*] Trying: {url}")
+                urllib.request.urlretrieve(url, zip_path)
+                # Verify it's a valid zip file
+                with zipfile.ZipFile(zip_path, 'r') as zf:
+                    # Check if python.exe exists in the zip
+                    if any('python.exe' in name.lower() for name in zf.namelist()):
+                        print(f"[+] Python downloaded successfully: {zip_path}")
+                        downloaded = True
+                        break
+                    else:
+                        zip_path.unlink()  # Remove invalid zip
+            except (urllib.error.URLError, urllib.error.HTTPError, zipfile.BadZipFile) as e:
+                if zip_path.exists():
+                    zip_path.unlink()
+                continue
+        
+        if not downloaded:
+            print(f"[!] Could not download Python automatically")
+            print(f"[!] Please download Python embeddable manually from:")
+            print(f"[!] https://www.python.org/downloads/windows/")
+            print(f"[!] Look for 'Windows embeddable package ({arch_dir})'")
+            print(f"[!] Extract it to: {python_dir}")
+            return False
+        
+        # Extract Python
+        print(f"[*] Extracting Python...")
+        extract_dir = python_dir / f"python-{version_str}-{arch_str}"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(extract_dir)
+            print(f"[+] Python extracted to: {extract_dir}")
+            
+            # Create a symlink or copy python.exe to python_dir for easier access
+            python_exe = extract_dir / "python.exe"
+            if python_exe.exists():
+                # Create a marker file with version info
+                version_file = python_dir / "VERSION"
+                version_file.write_text(f"{version_str}\n{arch_str}\n")
+                print(f"[+] Python {version_str} ({arch_str}) ready")
+                return True
+            else:
+                print(f"[!] python.exe not found in extracted package")
+                return False
+        except Exception as e:
+            print(f"[ERROR] Failed to extract Python: {e}")
+            return False
+    
     def get_download_info(self):
         """Get information about downloaded dependencies"""
         if not self.deps_dir.exists():
@@ -170,6 +277,11 @@ def main():
         '--platform',
         help='Target platform (e.g., win_amd64, win32, linux_x86_64)'
     )
+    parser.add_argument(
+        '--include-python',
+        action='store_true',
+        help='Download Python embeddable package (Windows only, use with --windows)'
+    )
     
     args = parser.parse_args()
     
@@ -184,6 +296,18 @@ def main():
             python_version=args.python_version,
             arch=args.arch
         )
+        
+        # Download Python if requested
+        if args.include_python and success:
+            print("\n[*] Downloading Python embeddable package...")
+            python_success = downloader.download_python(
+                python_version=args.python_version,
+                arch=args.arch
+            )
+            if python_success:
+                print("[+] Python included in offline package")
+            else:
+                print("[!] Python download failed, but dependencies are ready")
     elif args.platform:
         print(f"[*] Downloading dependencies for platform: {args.platform}...")
         success = downloader.download_dependencies(

@@ -47,7 +47,7 @@ python3 package_for_windows.py
 ```bash
 # On Linux, create a clean copy
 mkdir -p windows_package/windows-lateral-movement-tui
-cp -r modules/ docs/ config/ examples/ windows_package/windows-lateral-movement-tui/
+cp -r modules/ docs/ config/ windows_package/windows-lateral-movement-tui/
 cp main.py requirements.txt VERSION LICENSE README.md windows_package/windows-lateral-movement-tui/
 
 # Copy optional components if they exist

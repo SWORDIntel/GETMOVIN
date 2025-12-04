@@ -21,12 +21,13 @@ from rich.console import Console
 from rich.text import Text
 from rich.layout import Layout
 from rich.columns import Columns
-from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 from modules.pe5_utils import PE5Utils
 import os
 import sys
 import json
+from pathlib import Path
 
 
 class PE5SystemEscalationModule:
@@ -58,7 +59,8 @@ class PE5SystemEscalationModule:
             banner_text.append("PE5 SYSTEM Privilege Escalation\n", style="bold cyan")
             banner_text.append("PRIMARY PRIVILEGE ESCALATION METHOD\n\n", style="bold yellow")
             banner_text.append("Kernel-level token manipulation for SYSTEM privileges.\n", style="white")
-            banner_text.append("Based on APT-41 PE5 exploit framework.\n\n", style="dim white")
+            banner_text.append("Based on APT-41 PE5 exploit framework.\n", style="dim white")
+            banner_text.append("Moonwalk: Auto-clearing logs and traces after each operation\n\n", style="dim yellow")
             banner_text.append("💡 Tip: Type 'h' or 'help' for AI guidance on any function\n", style="dim cyan")
             banner_text.append("📖 Use '?' after selecting a function for detailed usage\n", style="dim cyan")
             
@@ -91,13 +93,15 @@ class PE5SystemEscalationModule:
                 ("8", "SMBv3 Local PE", "CVE-2020-0796 local escalation", "CVE-2020-0796"),
                 ("9", "Verify SYSTEM Privileges", "Post-exploitation verification", "T1087"),
                 ("10", "Generate PE Report", "Comprehensive privilege escalation report", "T1087"),
+                ("g", "Module Guide", "Comprehensive usage guide and TTPs", "Help"),
                 ("h", "AI Guidance & Help", "Get AI-powered guidance for PE5 techniques", "Help"),
                 ("?", "Quick Reference", "Quick reference guide and examples", "Help"),
                 ("0", "Return to main menu", "Exit PE5 module", "")
             ]
             
+            # Display the enhanced table with descriptions
             for opt, func, desc, ttp in functions:
-                if opt == "h" or opt == "?":
+                if opt in ["h", "?", "g"]:
                     table.add_row(f"[bold]{opt}[/bold]", f"[bold cyan]{func}[/bold cyan]", desc, ttp)
                 else:
                     table.add_row(f"[bold]{opt}[/bold]", func, desc, ttp)
@@ -105,9 +109,14 @@ class PE5SystemEscalationModule:
             console.print(table)
             console.print()
             
-            choice = Prompt.ask(
+            # Create menu options for navigation (simplified labels for navigation menu)
+            menu_options = [{'key': opt, 'label': func} for opt, func, desc, ttp in functions]
+            
+            # Use select_menu_option for navigation (it will show a simplified interactive menu)
+            choice = select_menu_option(
+                console,
+                menu_options,
                 "[bold cyan]Select function[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'h', 'H', 'help', 'HELP', '?'],
                 default='0'
             )
             
@@ -115,6 +124,8 @@ class PE5SystemEscalationModule:
             choice = choice.lower()
             if choice in ['h', 'help']:
                 choice = 'h'
+            elif choice in ['g', 'guide']:
+                choice = 'g'
             elif choice == '?':
                 choice = '?'
             
@@ -122,6 +133,8 @@ class PE5SystemEscalationModule:
                 break
             elif choice == 'h':
                 self._ai_guidance(console, session_data)
+            elif choice == 'g':
+                self._show_module_guide(console)
             elif choice == '?':
                 self._quick_reference(console, session_data)
             elif choice == '1':
@@ -146,11 +159,76 @@ class PE5SystemEscalationModule:
                 self._generate_report(console, session_data)
             
             # Offer help after each function
-            if choice not in ['0', 'h', '?']:
+            if choice not in ['0', 'h', '?', 'g']:
                 if Confirm.ask("\n[bold cyan]Need help with this function? (AI guidance)[/bold cyan]", default=False):
                     self._contextual_help(console, session_data, choice)
+                
+                # Moonwalk cleanup after operations (enabled by default)
+                self._moonwalk_cleanup(console, 'privilege_escalation')
             
             console.print()
+    
+    def _show_module_guide(self, console: Console):
+        """Show comprehensive module guide"""
+        guide_text = """[bold cyan]PE5 SYSTEM Escalation Module Guide[/bold cyan]
+
+[bold]Purpose:[/bold]
+Kernel-level privilege escalation using APT-41 PE5 framework for SYSTEM privileges.
+
+[bold]Key Functions:[/bold]
+1. PE5 Mechanism - Complete technical breakdown of exploit
+2. Token Manipulation - Direct _EPROCESS.Token modification
+3. Token Stealing - Copy SYSTEM token to current process
+4. SYSCALL Execution - Kernel-level system call execution
+5. Windows PE Techniques - Additional privilege escalation methods
+6. Print Spooler Exploit - CVE-2021-1675 exploitation
+7. UAC Bypass - User Account Control bypass techniques
+8. SMBv3 Exploit - CVE-2020-0796 exploitation
+9. Verify Privileges - Check current privilege level
+10. Generate Report - Create comprehensive PE report
+
+[bold]MITRE ATT&CK TTPs:[/bold]
+• T1068 - Exploitation for Privilege Escalation
+• T1134 - Access Token Manipulation
+• T1078 - Valid Accounts
+• T1548 - Abuse Elevation Control Mechanism
+• T1055 - Process Injection
+
+[bold]Usage Tips:[/bold]
+• Start with option 1 to understand PE5 mechanism
+• Option 2-4 are core PE5 exploitation techniques
+• Options 6-8 are additional Windows exploits
+• Option 9 verifies if escalation was successful
+• Use AI guidance (h/help) for step-by-step instructions
+• Moonwalk automatically clears privilege escalation traces
+
+[bold]Best Practices:[/bold]
+• Understand the exploit mechanism before execution
+• Test in lab environment first
+• Verify privileges after escalation
+• Clear all traces after operations
+• Document exploitation steps for reporting"""
+        
+        console.print(Panel(guide_text, title="Module Guide", border_style="red"))
+        console.print()
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
+    
+    def _moonwalk_cleanup(self, console: Console, operation_type: str):
+        """Perform moonwalk cleanup after operation"""
+        try:
+            console.print("\n[yellow]Running moonwalk cleanup...[/yellow]")
+            results = self.moonwalk.cleanup_after_operation(operation_type)
+            
+            if results.get('event_logs', {}).get('cleared'):
+                console.print(f"[green]Cleared {len(results['event_logs']['cleared'])} event logs[/green]")
+            if results.get('powershell_history'):
+                console.print("[green]Cleared PowerShell history[/green]")
+            if results.get('command_history'):
+                console.print("[green]Cleared command history[/green]")
+            if results.get('registry'):
+                console.print("[green]Cleared registry traces[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Moonwalk cleanup error: {e}[/yellow]")
     
     def _pe5_mechanism(self, console: Console, session_data: dict):
         """Explain PE5 kernel exploit mechanism"""
