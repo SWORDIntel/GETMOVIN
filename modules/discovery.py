@@ -125,12 +125,20 @@ class ComponentDiscovery:
             'cryptography': False,
         }
         
-        for dep_name in dependencies.keys():
+        # Map dependency keys to import names
+        import_map = {
+            'websockets': 'websockets',
+            'aiohttp': 'aiohttp',
+            'yaml': 'yaml',
+            'cryptography': 'cryptography',
+        }
+        
+        for dep_key, import_name in import_map.items():
             try:
-                __import__(dep_name)
-                dependencies[dep_name] = True
+                __import__(import_name)
+                dependencies[dep_key] = True
             except ImportError:
-                dependencies[dep_name] = False
+                dependencies[dep_key] = False
         
         self.discovered_components['optional_dependencies'] = dependencies
         return dependencies

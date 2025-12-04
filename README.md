@@ -53,7 +53,18 @@ The script will automatically:
 - Windows operating system (primary target)
 - Administrator privileges (for some operations)
 
-### Installation Steps
+### Cross-Platform Setup
+
+This tool can be **prepared on Linux** and **deployed to Windows**. See [CROSS_PLATFORM.md](CROSS_PLATFORM.md) for details.
+
+**Quick Package Creation (Linux):**
+```bash
+python3 package_for_windows.py
+# Transfer windows_package/ to Windows PC
+# On Windows: Run setup_windows.bat
+```
+
+## Installation Steps
 
 1. **Clone or extract the tool:**
    ```bash
