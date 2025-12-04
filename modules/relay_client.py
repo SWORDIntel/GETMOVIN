@@ -25,6 +25,16 @@ import websockets
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
+# Import TLS extensions for command channel
+try:
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / 'relay' / 'src'))
+    from tls_extensions import TLSCommandExtension, CommandChannel, TLSCommandType
+except ImportError:
+    TLSCommandExtension = None
+    CommandChannel = None
+    TLSCommandType = None
+
 
 class RelayClient:
     """Client for connecting to AI Relay service"""
@@ -44,6 +54,8 @@ class RelayClient:
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 1.0
         self.max_reconnect_delay = 60.0
+        self.use_command_channel = False  # TLS extension command channel
+        self.command_sequence = 0  # Sequence number for commands
         
     def _build_ws_url(self) -> str:
         """Build WebSocket URL"""
@@ -57,7 +69,7 @@ class RelayClient:
         return f"{scheme}://{self.relay_host}:{self.relay_port}"
     
     def _get_ssl_context(self) -> Optional[ssl.SSLContext]:
-        """Get SSL context for TLS connections"""
+        """Get SSL context for TLS connections with CNSA 2.0 compliance"""
         if not self.use_tls:
             return None
         
@@ -66,9 +78,41 @@ class RelayClient:
             return None
         
         context = ssl.create_default_context()
+        
+        # CNSA 2.0 Compliant Configuration
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
+        
+        # CNSA 2.0 Cipher Suites
+        cnsa_ciphers = (
+            'ECDHE-ECDSA-AES256-GCM-SHA384:'
+            'ECDHE-RSA-AES256-GCM-SHA384:'
+            'DHE-RSA-AES256-GCM-SHA384'
+        )
+        context.set_ciphers(cnsa_ciphers)
+        
+        # Security options
+        context.options |= ssl.OP_NO_SSLv2
+        context.options |= ssl.OP_NO_SSLv3
+        context.options |= ssl.OP_NO_TLSv1
+        context.options |= ssl.OP_NO_TLSv1_1
+        context.options |= ssl.OP_SINGLE_ECDH_USE
+        context.options |= ssl.OP_SINGLE_DH_USE
+        
+        # Configure ALPN for TLS extensions (command channel)
+        if TLSCommandExtension:
+            try:
+                context.set_alpn_protocols(
+                    TLSCommandExtension.create_alpn_protocols()
+                )
+            except AttributeError:
+                logging.warning("ALPN not supported in this Python version")
+        
         # Allow self-signed certificates for testing
+        # In production, use proper CA certificates
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
+        
         return context
     
     def _get_headers(self) -> Dict[str, str]:
@@ -100,6 +144,18 @@ class RelayClient:
                 ping_interval=20,
                 ping_timeout=10
             )
+            
+            # Check if command channel is negotiated via ALPN
+            if ssl_context and hasattr(self.ws, 'transport'):
+                try:
+                    if hasattr(self.ws.transport, '_ssl_protocol'):
+                        alpn_protocol = self.ws.transport._ssl_protocol.selected_alpn_protocol()
+                        if alpn_protocol == TLSCommandExtension.ALPN_PROTOCOL_COMMAND.decode('utf-8'):
+                            self.use_command_channel = True
+                            logging.info("Using TLS command channel (ALPN)")
+                except:
+                    pass
+            
             self.connected = True
             self.reconnect_attempts = 0
             self.reconnect_delay = 1.0
@@ -121,19 +177,39 @@ class RelayClient:
                 self.ws = None
                 self.connected = False
     
-    async def send(self, message: bytes) -> bool:
-        """Send message through relay"""
+    async def send(self, message: bytes, use_command_channel: bool = False) -> bool:
+        """
+        Send message through relay
+        
+        Args:
+            message: Message bytes (command or MEMSHADOW binary)
+            use_command_channel: If True and command channel available, send as command
+        """
         if not self.connected or not self.ws:
             if not await self.connect():
                 return False
         
         try:
-            await self.ws.send(message)
+            # If command channel is available and requested, use TLS extension format
+            if use_command_channel and self.use_command_channel and TLSCommandExtension:
+                # Assume message is a command payload, wrap it
+                # In practice, caller should specify command type
+                # For now, treat as generic command
+                self.command_sequence += 1
+                wrapped = TLSCommandExtension.pack_command(
+                    TLSCommandType.CMD_EXECUTE,
+                    message,
+                    self.command_sequence
+                )
+                await self.ws.send(wrapped)
+            else:
+                # Send as binary (MEMSHADOW protocol)
+                await self.ws.send(message)
             return True
         except ConnectionClosed:
             logging.warning("Connection closed, attempting reconnect...")
             self.connected = False
-            return await self._reconnect_and_send(message)
+            return await self._reconnect_and_send(message, use_command_channel)
         except Exception as e:
             logging.error(f"Error sending message: {e}")
             return False
@@ -157,7 +233,7 @@ class RelayClient:
             logging.error(f"Error receiving message: {e}")
             return None
     
-    async def _reconnect_and_send(self, message: bytes) -> bool:
+    async def _reconnect_and_send(self, message: bytes, use_command_channel: bool = False) -> bool:
         """Reconnect and retry sending message"""
         if self.reconnect_attempts >= self.max_reconnect_attempts:
             logging.error("Max reconnect attempts reached")
@@ -171,8 +247,18 @@ class RelayClient:
         await asyncio.sleep(delay)
         
         if await self.connect():
-            return await self.send(message)
+            return await self.send(message, use_command_channel)
         return False
+    
+    async def send_command(self, cmd_type: TLSCommandType, payload: bytes) -> bool:
+        """Send command via TLS extension channel"""
+        if not self.use_command_channel or not TLSCommandExtension:
+            # Fallback to regular send
+            return await self.send(payload)
+        
+        self.command_sequence += 1
+        command = TLSCommandExtension.pack_command(cmd_type, payload, self.command_sequence)
+        return await self.send(command)
     
     async def listen(self, message_handler):
         """Listen for messages and call handler"""

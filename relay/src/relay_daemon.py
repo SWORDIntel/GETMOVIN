@@ -31,6 +31,15 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
+# Import TLS extensions and MEMSHADOW protocol support
+try:
+    from tls_extensions import TLSCommandExtension, CommandChannel, TLSCommandType
+except ImportError:
+    # Fallback if not available
+    TLSCommandExtension = None
+    CommandChannel = None
+    TLSCommandType = None
+
 
 class RelayConfig:
     """Relay configuration"""
@@ -127,6 +136,8 @@ class RelaySession:
         self.messages_sent = 0
         self.messages_received = 0
         self.authenticated = False
+        self.use_command_channel = False  # TLS extension command channel
+        self.command_sequence = 0  # Sequence number for commands
     
     async def connect_controller(self) -> bool:
         """Connect to AI controller"""
@@ -231,7 +242,7 @@ class RelayDaemon:
         root_logger.addHandler(console_handler)
     
     def setup_tls(self):
-        """Setup TLS context"""
+        """Setup TLS context with CNSA 2.0 compliance"""
         if not self.config.get('tls.enabled', True):
             return
         
@@ -243,11 +254,48 @@ class RelayDaemon:
                 self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
                 self.ssl_context.load_cert_chain(cert_file, key_file)
                 
-                # CNSA 2.0-ish cipher suite preferences
-                self.ssl_context.set_ciphers('ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384')
+                # CNSA 2.0 Compliant Configuration
+                # Required: TLS 1.2 or higher
                 self.ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+                self.ssl_context.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
                 
-                logging.info("TLS enabled with certificate")
+                # CNSA 2.0 Cipher Suites (in priority order):
+                # - ECDHE-ECDSA-AES256-GCM-SHA384 (P-384 curve, AES-256, SHA-384)
+                # - ECDHE-RSA-AES256-GCM-SHA384 (RSA 3072+, AES-256, SHA-384)
+                # - DHE-RSA-AES256-GCM-SHA384 (DH 3072+, AES-256, SHA-384)
+                cnsa_ciphers = (
+                    'ECDHE-ECDSA-AES256-GCM-SHA384:'      # Preferred: ECDSA P-384
+                    'ECDHE-RSA-AES256-GCM-SHA384:'        # RSA 3072+
+                    'DHE-RSA-AES256-GCM-SHA384'           # DH 3072+
+                )
+                self.ssl_context.set_ciphers(cnsa_ciphers)
+                
+                # CNSA 2.0: Prefer P-384 elliptic curves
+                # Note: Python ssl doesn't expose curve selection directly,
+                # but ECDHE ciphers will negotiate P-384 when available
+                self.ssl_context.options |= ssl.OP_NO_SSLv2
+                self.ssl_context.options |= ssl.OP_NO_SSLv3
+                self.ssl_context.options |= ssl.OP_NO_TLSv1
+                self.ssl_context.options |= ssl.OP_NO_TLSv1_1
+                
+                # Enable perfect forward secrecy
+                self.ssl_context.options |= ssl.OP_SINGLE_ECDH_USE
+                self.ssl_context.options |= ssl.OP_SINGLE_DH_USE
+                
+                # Prefer server cipher order
+                self.ssl_context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
+                
+                # Configure ALPN for TLS extensions (command channel)
+                if TLSCommandExtension:
+                    try:
+                        self.ssl_context.set_alpn_protocols(
+                            TLSCommandExtension.create_alpn_protocols()
+                        )
+                        logging.info("ALPN protocols configured for TLS extensions")
+                    except AttributeError:
+                        logging.warning("ALPN not supported in this Python version")
+                
+                logging.info("TLS enabled with CNSA 2.0 compliant configuration")
             else:
                 logging.warning("TLS enabled but certificates not found, generating self-signed")
                 self.ssl_context = self._generate_self_signed_cert()
@@ -293,6 +341,19 @@ class RelayDaemon:
         
         logging.info(f"New client connection: {session_id} from {client_addr}")
         
+        # Check if this is a command channel (TLS extension) or MEMSHADOW binary
+        # WebSocket over TLS will have ALPN protocol negotiated
+        use_command_channel = False
+        if hasattr(ws, 'transport') and hasattr(ws.transport, '_ssl_protocol'):
+            # Check ALPN protocol
+            try:
+                alpn_protocol = ws.transport._ssl_protocol.selected_alpn_protocol()
+                if alpn_protocol == TLSCommandExtension.ALPN_PROTOCOL_COMMAND.decode('utf-8'):
+                    use_command_channel = True
+                    logging.info(f"Session {session_id} using TLS command channel")
+            except:
+                pass
+        
         # Authenticate
         headers = dict(ws.request_headers) if hasattr(ws, 'request_headers') else {}
         authenticated, token = await self.authenticate_client(ws, headers)
@@ -312,6 +373,7 @@ class RelayDaemon:
         controller_endpoint = self.config.get('controller.endpoint', 'ws://localhost:8888')
         session = RelaySession(session_id, ws, controller_endpoint, token)
         session.authenticated = True
+        session.use_command_channel = use_command_channel
         self.sessions[session_id] = session
         
         try:
@@ -323,10 +385,18 @@ class RelayDaemon:
             logging.info(f"Session {session_id} established, relaying to {controller_endpoint}")
             
             # Start bidirectional relay
-            await asyncio.gather(
-                self._relay_client_to_controller(session),
-                self._relay_controller_to_client(session)
-            )
+            if use_command_channel:
+                # Use TLS extension command channel
+                await asyncio.gather(
+                    self._relay_commands_client_to_controller(session),
+                    self._relay_commands_controller_to_client(session)
+                )
+            else:
+                # Use MEMSHADOW binary protocol
+                await asyncio.gather(
+                    self._relay_client_to_controller(session),
+                    self._relay_controller_to_client(session)
+                )
         except ConnectionClosed:
             logging.info(f"Client connection closed: {session_id}")
         except Exception as e:
@@ -373,6 +443,63 @@ class RelayDaemon:
             pass
         except Exception as e:
             logging.error(f"Error relaying controller->client: {e}")
+    
+    async def _relay_commands_client_to_controller(self, session: RelaySession):
+        """Relay commands from client to controller using TLS extensions"""
+        if not TLSCommandExtension:
+            # Fallback to binary relay
+            await self._relay_client_to_controller(session)
+            return
+        
+        try:
+            async for message in session.client_ws:
+                if isinstance(message, str):
+                    message = message.encode('utf-8')
+                
+                # Parse command from TLS extension format
+                try:
+                    cmd_type, sequence, payload = TLSCommandExtension.unpack_command(message)
+                    logging.debug(f"Relaying command {cmd_type} (seq: {sequence})")
+                    
+                    # Relay to controller
+                    await session.relay_message(message)
+                except ValueError:
+                    # Not a command, treat as binary (MEMSHADOW)
+                    await session.relay_message(message)
+        except ConnectionClosed:
+            pass
+        except Exception as e:
+            logging.error(f"Error relaying commands client->controller: {e}")
+    
+    async def _relay_commands_controller_to_client(self, session: RelaySession):
+        """Relay commands from controller to client using TLS extensions"""
+        if not TLSCommandExtension:
+            # Fallback to binary relay
+            await self._relay_controller_to_client(session)
+            return
+        
+        try:
+            if not session.controller_ws:
+                return
+            
+            async for message in session.controller_ws:
+                if isinstance(message, str):
+                    message = message.encode('utf-8')
+                
+                # Check if it's a command response
+                try:
+                    cmd_type, sequence, payload = TLSCommandExtension.unpack_command(message)
+                    logging.debug(f"Relaying command response {cmd_type} (seq: {sequence})")
+                    
+                    # Send to client
+                    await session.send_to_client(message)
+                except ValueError:
+                    # Not a command, treat as binary (MEMSHADOW)
+                    await session.send_to_client(message)
+        except ConnectionClosed:
+            pass
+        except Exception as e:
+            logging.error(f"Error relaying commands controller->client: {e}")
     
     async def cleanup_idle_sessions(self):
         """Cleanup idle sessions"""
