@@ -6,12 +6,18 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
+from modules.loghunter_integration import WindowsMoonwalk
 
 
 class LateralModule:
     """Module for lateral movement channels"""
     
+    def __init__(self):
+        self.moonwalk = None
+    
     def run(self, console: Console, session_data: dict):
+        if not self.moonwalk:
+            self.moonwalk = WindowsMoonwalk(console, session_data)
         """Run lateral movement module"""
         while True:
             console.print(Panel(
@@ -57,7 +63,28 @@ class LateralModule:
             elif choice == '7':
                 self._apt41_lateral_tools(console, session_data)
             
+            # Moonwalk cleanup after lateral movement operations
+            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+                self._moonwalk_cleanup(console, 'lateral_movement')
+            
             console.print()
+    
+    def _moonwalk_cleanup(self, console: Console, operation_type: str):
+        """Perform moonwalk cleanup after operation"""
+        try:
+            console.print("\n[yellow]Running moonwalk cleanup...[/yellow]")
+            results = self.moonwalk.cleanup_after_operation(operation_type)
+            
+            if results.get('event_logs', {}).get('cleared'):
+                console.print(f"[green]Cleared {len(results['event_logs']['cleared'])} event logs[/green]")
+            if results.get('powershell_history'):
+                console.print("[green]Cleared PowerShell history[/green]")
+            if results.get('command_history'):
+                console.print("[green]Cleared command history[/green]")
+            if results.get('registry_traces', {}).get('cleared'):
+                console.print(f"[green]Cleared {len(results['registry_traces']['cleared'])} registry traces[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Moonwalk cleanup error: {e}[/yellow]")
     
     def _smb_rpc(self, console: Console, session_data: dict):
         """SMB/RPC-based lateral movement"""

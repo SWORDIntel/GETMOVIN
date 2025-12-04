@@ -6,12 +6,18 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
+from modules.loghunter_integration import WindowsMoonwalk
 
 
 class FootholdModule:
     """Module for assessing SSH foothold and initial access"""
     
+    def __init__(self):
+        self.moonwalk = None
+    
     def run(self, console: Console, session_data: dict):
+        if not self.moonwalk:
+            self.moonwalk = WindowsMoonwalk(console, session_data)
         """Run foothold assessment"""
         while True:
             console.print(Panel(
@@ -50,6 +56,10 @@ class FootholdModule:
                 self._apt41_initial_access(console, session_data)
             elif choice == '5':
                 self._generate_report(console, session_data)
+            
+            # Moonwalk cleanup after operations
+            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+                self._moonwalk_cleanup(console, 'execution')
             
             console.print()
     

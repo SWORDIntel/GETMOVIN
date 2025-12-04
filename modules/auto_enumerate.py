@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich.table import Table
+from rich.prompt import Prompt, Confirm
 from rich import box
 from modules.utils import execute_cmd, execute_powershell, validate_target
 from modules.loghunter_integration import LogHunter, WindowsMoonwalk
@@ -34,7 +35,7 @@ class AutoEnumerator:
             'lateral_paths': []  # Track lateral movement paths
         }
         self.lab_use = session_data.get('LAB_USE', 0)
-        self.max_depth = 3  # Maximum lateral movement depth
+        self.max_depth = session_data.get('AUTO_ENUMERATE_DEPTH', 3)  # Maximum lateral movement depth (configurable)
         self.visited_hosts = set()  # Track visited hosts to avoid loops
         self.lateral_path = []  # Current lateral movement path
         self.loghunter = None
@@ -1104,6 +1105,21 @@ class AutoEnumerateModule:
     
     def run(self, console: Console, session_data: dict):
         """Run auto-enumeration"""
+        # Allow depth override
+        default_depth = session_data.get('AUTO_ENUMERATE_DEPTH', 3)
+        console.print(f"\n[bold cyan]Current lateral movement depth: {default_depth}[/bold cyan]")
+        
+        if Confirm.ask(f"[bold]Override depth? (default: {default_depth})[/bold]", default=False):
+            try:
+                new_depth = int(Prompt.ask("Enter maximum depth", default=str(default_depth)))
+                if new_depth < 1:
+                    console.print("[yellow]Depth must be at least 1, using default[/yellow]")
+                    new_depth = default_depth
+                session_data['AUTO_ENUMERATE_DEPTH'] = new_depth
+                console.print(f"[green]Depth set to: {new_depth}[/green]\n")
+            except ValueError:
+                console.print("[yellow]Invalid depth, using default[/yellow]\n")
+        
         enumerator = AutoEnumerator(console, session_data)
         
         console.print("\n[bold yellow]Starting comprehensive enumeration...[/bold yellow]\n")

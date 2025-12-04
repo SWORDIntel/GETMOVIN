@@ -5,13 +5,19 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
+from modules.loghunter_integration import WindowsMoonwalk
 
 
 class ConsolidationModule:
     """Module for consolidation and strategic objectives"""
     
+    def __init__(self):
+        self.moonwalk = None
+    
     def run(self, console: Console, session_data: dict):
         """Run consolidation module"""
+        if not self.moonwalk:
+            self.moonwalk = WindowsMoonwalk(console, session_data)
         while True:
             console.print(Panel(
                 "[bold]Consolidation & Dominance[/bold]\n\n"
@@ -53,7 +59,28 @@ class ConsolidationModule:
             elif choice == '6':
                 self._apt41_persistence(console, session_data)
             
+            # Moonwalk cleanup after persistence operations
+            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
+                self._moonwalk_cleanup(console, 'persistence')
+            
             console.print()
+    
+    def _moonwalk_cleanup(self, console: Console, operation_type: str):
+        """Perform moonwalk cleanup after operation"""
+        try:
+            console.print("\n[yellow]Running moonwalk cleanup...[/yellow]")
+            results = self.moonwalk.cleanup_after_operation(operation_type)
+            
+            if results.get('event_logs', {}).get('cleared'):
+                console.print(f"[green]Cleared {len(results['event_logs']['cleared'])} event logs[/green]")
+            if results.get('powershell_history'):
+                console.print("[green]Cleared PowerShell history[/green]")
+            if results.get('command_history'):
+                console.print("[green]Cleared command history[/green]")
+            if results.get('registry_traces', {}).get('cleared'):
+                console.print(f"[green]Cleared {len(results['registry_traces']['cleared'])} registry traces[/green]")
+        except Exception as e:
+            console.print(f"[yellow]Moonwalk cleanup error: {e}[/yellow]")
     
     def _strategic_objectives(self, console: Console, session_data: dict):
         """Strategic objectives"""

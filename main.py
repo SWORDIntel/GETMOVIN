@@ -26,6 +26,7 @@ from modules.llm_agent import LLMAgentModule
 from modules.madcert_integration import MADCertModule
 from modules.lolbins_reference import LOLBinsModule
 from modules.auto_enumerate import AutoEnumerateModule
+from modules.loghunter_integration import LogHunterModule, MoonwalkModule
 
 console = Console()
 
@@ -34,6 +35,10 @@ LAB_USE = 1
 
 # AUTO_ENUMERATE flag: Set to 1 to automatically enumerate all modules and generate report
 AUTO_ENUMERATE = 0  # Set to 1 for automatic enumeration on startup
+
+# AUTO_ENUMERATE_DEPTH: Maximum depth for lateral movement (default: 3)
+# Can be overridden via environment variable: AUTO_ENUMERATE_DEPTH=5
+AUTO_ENUMERATE_DEPTH = int(os.getenv('AUTO_ENUMERATE_DEPTH', '3'))
 
 # Local IP ranges (RFC 1918 + loopback)
 LOCAL_IP_RANGES = [
@@ -68,10 +73,13 @@ class LateralMovementTUI:
             '7': ('LLM Remote Agent', LLMAgentModule()),
             '8': ('MADCert Certificate Generation', MADCertModule()),
             '9': ('LOLBins Reference', LOLBinsModule()),
+            '10': ('LogHunter Integration', LogHunterModule()),
+            '11': ('Windows Moonwalk', MoonwalkModule()),
         }
         self.session_data = {
             'LAB_USE': LAB_USE,
             'AUTO_ENUMERATE': AUTO_ENUMERATE,
+            'AUTO_ENUMERATE_DEPTH': AUTO_ENUMERATE_DEPTH,
             'is_local_ip': is_local_ip,
         }
         
@@ -84,10 +92,13 @@ class LateralMovementTUI:
         
         lab_status = "[bold yellow]LAB MODE[/bold yellow] - Local IP ranges only" if LAB_USE == 1 else "[bold green]LIVE MODE[/bold green] - Full execution enabled"
         enum_status = "[bold cyan]AUTO-ENUMERATE[/bold cyan]" if AUTO_ENUMERATE == 1 else ""
+        depth_status = f"[bold cyan]DEPTH={AUTO_ENUMERATE_DEPTH}[/bold cyan]" if AUTO_ENUMERATE == 1 else ""
         
         status_line = f"{lab_status}"
         if enum_status:
             status_line += f" | {enum_status}"
+            if depth_status:
+                status_line += f" ({depth_status})"
         
         panel = Panel(
             banner,
@@ -115,7 +126,9 @@ class LateralMovementTUI:
             '6': 'OPSEC best practices & evasion',
             '7': 'LLM remote agent with self-coding execution',
             '8': 'MADCert certificate generation for AD environments',
-            '9': 'LOLBins reference - Living Off The Land Binaries'
+            '9': 'LOLBins reference - Living Off The Land Binaries',
+            '10': 'LogHunter - Windows event log analysis & hunting',
+            '11': 'Windows Moonwalk - Cover tracks & clear logs'
         }
         
         for key, (name, _) in self.modules.items():
@@ -132,7 +145,8 @@ class LateralMovementTUI:
         
         # Check for AUTO_ENUMERATE mode
         if AUTO_ENUMERATE == 1:
-            self.console.print("[bold yellow]AUTO-ENUMERATE MODE ENABLED[/bold yellow]\n")
+            self.console.print(f"[bold yellow]AUTO-ENUMERATE MODE ENABLED[/bold yellow]")
+            self.console.print(f"[bold cyan]Maximum lateral movement depth: {AUTO_ENUMERATE_DEPTH}[/bold cyan]\n")
             auto_module = AutoEnumerateModule()
             auto_module.run(self.console, self.session_data)
             if not Confirm.ask("\n[bold]Continue to interactive mode?[/bold]", default=False):
@@ -143,7 +157,7 @@ class LateralMovementTUI:
             
             choice = Prompt.ask(
                 "[bold cyan]Select module[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'],
                 default='0'
             )
             
