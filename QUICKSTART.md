@@ -1,54 +1,115 @@
 # Quick Start Guide
 
-Get up and running in 60 seconds!
+## One-Command Setup
 
-## Windows Users
+### Windows
+```batch
+run.bat
+```
 
-1. **Double-click `run.bat`**
-   - That's it! The script handles everything
+### Linux/Mac
+```bash
+./run.sh
+```
 
-## Linux/Mac Users
+**That's it!** The bootstrap script handles everything:
+- ✅ Python version check
+- ✅ Virtual environment creation
+- ✅ Dependency installation
+- ✅ Tool launch
 
-1. **Make script executable:**
-   ```bash
-   chmod +x run.sh
-   ```
+## What You Get
 
-2. **Run the script:**
-   ```bash
-   ./run.sh
-   ```
+After bootstrap, you have:
+- ✅ Fully functional TUI
+- ✅ All 12 modules available
+- ✅ Auto-enumeration ready
+- ✅ PE5 escalation module
+- ✅ Relay client support
+- ✅ Complete documentation
 
-## What Happens
+## Optional: Install Additional Features
 
-The run script automatically:
-- ✅ Checks for Python 3.8+
-- ✅ Creates virtual environment
-- ✅ Installs dependencies
-- ✅ Launches the tool
+### Relay Service (Optional)
+
+If you want to use the relay service:
+
+```bash
+# Install relay dependencies
+pip install websockets aiohttp pyyaml
+
+# Or install relay service
+cd relay
+sudo ./scripts/install.sh
+```
+
+### PE5 Framework (Optional)
+
+The PE5 framework source is included but needs compilation:
+
+```bash
+cd pe5_framework_extracted/pe5_framework
+python build.py all
+```
 
 ## First Run
 
-1. You'll see the main menu
-2. Select a module (1-11)
-3. Explore the features!
+1. Run bootstrap: `./run.sh` or `run.bat`
+2. Tool launches automatically
+3. Select modules from menu
+4. Use option 12 for PE5 SYSTEM escalation
+5. Set `AUTO_ENUMERATE=1` in `main.py` for automatic enumeration
 
-## Configuration
+## Verification
 
-Edit `main.py` to change settings:
+Check that everything works:
 
-```python
-LAB_USE = 1              # Lab mode (safe testing)
-AUTO_ENUMERATE = 0       # Auto-enumeration mode
-AUTO_ENUMERATE_DEPTH = 3 # Lateral movement depth
+```bash
+# Activate venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Run tool
+python main.py
+
+# Check modules
+python -c "from modules.pe5_system_escalation import PE5SystemEscalationModule; print('PE5: OK')"
+python -c "from modules.relay_client import RelayClient; print('Relay: OK')"
+python -c "from modules.auto_enumerate import AutoEnumerator; print('Auto-Enum: OK')"
 ```
 
-## Need Help?
+## Troubleshooting
 
-- Read `README.md` for full documentation
-- Check `INSTALL.md` for detailed installation
-- Review `docs/` for module-specific guides
+**Problem**: Python not found  
+**Solution**: Install Python 3.8+ from python.org
 
----
+**Problem**: Dependencies fail  
+**Solution**: Check internet, try: `pip install --upgrade pip`
 
-**Ready to start? Run `run.bat` (Windows) or `./run.sh` (Linux/Mac)!**
+**Problem**: Optional features unavailable  
+**Solution**: This is normal - optional features are gracefully disabled
+
+## Repository Structure
+
+```
+/
+├── main.py              # Entry point
+├── run.bat / run.sh     # Bootstrap scripts
+├── requirements.txt     # Dependencies (rich only)
+├── modules/             # All modules
+├── relay/               # Relay service (optional)
+├── pe5_framework_extracted/  # PE5 framework (optional)
+├── config/              # Config templates
+└── docs/                # Documentation
+```
+
+## Self-Contained Checklist
+
+- ✅ Single command bootstrap
+- ✅ Automatic setup
+- ✅ No external downloads (except pip)
+- ✅ All code included
+- ✅ Graceful optional dependencies
+- ✅ Clean structure
+- ✅ Complete documentation
+
+**The repository is production-ready and fully self-contained!**

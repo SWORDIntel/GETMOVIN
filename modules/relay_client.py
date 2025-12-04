@@ -124,6 +124,10 @@ class RelayClient:
     
     async def connect(self) -> bool:
         """Connect to relay server"""
+        if not WEBSOCKETS_AVAILABLE:
+            logging.error("websockets library not available. Install with: pip install websockets")
+            return False
+        
         url = self._build_ws_url()
         headers = self._get_headers()
         ssl_context = self._get_ssl_context()
@@ -304,7 +308,12 @@ class RelayClientConfig:
             return {}
         
         try:
-            import yaml
+            try:
+                import yaml
+            except ImportError:
+                logging.warning("PyYAML not available, cannot load relay config")
+                return {}
+            
             with open(self.config_path, 'r') as f:
                 return yaml.safe_load(f) or {}
         except Exception as e:

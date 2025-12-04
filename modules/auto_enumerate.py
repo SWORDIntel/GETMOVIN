@@ -968,7 +968,12 @@ class AutoEnumerator:
             for config_path in config_paths:
                 if config_path.exists():
                     try:
-                        import yaml
+                        try:
+                            import yaml
+                        except ImportError:
+                            relay_data['config_error'] = 'PyYAML not available'
+                            break
+                        
                         with open(config_path, 'r') as f:
                             relay_config = yaml.safe_load(f)
                         relay_data['relay_configured'] = True

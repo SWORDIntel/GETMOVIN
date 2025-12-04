@@ -24,7 +24,10 @@ from relay_daemon import RelayDaemon
 class HealthServer:
     """Health check HTTP server"""
     
-    def __init__(self, relay_daemon: RelayDaemon, port: int = 9090):
+    def __init__(self, relay_daemon: Optional[RelayDaemon], port: int = 9090):
+        if not AIOHTTP_AVAILABLE:
+            raise RuntimeError("aiohttp library not available. Install with: pip install aiohttp")
+        
         self.relay_daemon = relay_daemon
         self.port = port
         self.app = web.Application()

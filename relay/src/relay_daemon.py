@@ -20,16 +20,37 @@ import logging
 import ssl
 import sys
 import time
-import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Set, Tuple
 from urllib.parse import urlparse
 
-import aiohttp
-import websockets
-from websockets.server import WebSocketServerProtocol
-from websockets.exceptions import ConnectionClosed, ConnectionClosedError
+# Required dependencies for relay daemon
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    logging.warning("PyYAML not available - relay config loading will fail")
+
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+    logging.warning("aiohttp not available - health server may not work")
+
+try:
+    import websockets
+    from websockets.server import WebSocketServerProtocol
+    from websockets.exceptions import ConnectionClosed, ConnectionClosedError
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    WEBSOCKETS_AVAILABLE = False
+    WebSocketServerProtocol = None
+    ConnectionClosed = Exception
+    ConnectionClosedError = Exception
+    logging.error("websockets not available - relay daemon cannot function")
 
 # Import TLS extensions and MEMSHADOW protocol support
 try:
@@ -51,6 +72,10 @@ class RelayConfig:
     def _load_config(self) -> dict:
         """Load configuration from YAML file"""
         if not self.config_path.exists():
+            return self._default_config()
+        
+        if not YAML_AVAILABLE:
+            logging.error("PyYAML not available - cannot load config file")
             return self._default_config()
         
         try:
@@ -519,6 +544,10 @@ class RelayDaemon:
     
     async def start(self):
         """Start relay daemon"""
+        if not WEBSOCKETS_AVAILABLE:
+            logging.error("websockets library not available. Install with: pip install websockets")
+            raise RuntimeError("Required dependency 'websockets' not available")
+        
         host = self.config.get('listen.host', '0.0.0.0')
         port = self.config.get('listen.port', 8889)
         

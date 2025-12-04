@@ -22,8 +22,8 @@ wheels/
 
 # Virtual Environment
 venv/
-ENV/
 env/
+ENV/
 .venv
 
 # IDE
@@ -36,32 +36,37 @@ env/
 # OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Logs and Reports
+# Project specific
 *.log
-*.evtx
-*.xml
+*.json
+*.html
+*.txt
 enumeration_report_*.txt
 enumeration_report_*.json
 enumeration_report_*.html
+pe_report.json
+
+# Relay service
+/etc/ai-relay/
+/var/log/ai-relay/
+/opt/ai-relay/
 
 # Temporary files
 *.tmp
 *.temp
-temp/
-tmp/
 
 # Certificates (if generated)
 *.pem
 *.key
 *.crt
-*.pfx
-*.p12
-*.cer
+*.cert
 
-# Sensitive data
-*.secret
-*.key
-config.ini
-.env
+# Tor hidden service
+/var/lib/tor/ai-relay/
+
+# Build artifacts
+pe5_framework_extracted/pe5_framework/build/
+*.exe
+*.dll
+*.obj

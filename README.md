@@ -37,10 +37,13 @@ run.bat
 ```
 
 The script will automatically:
-1. Check for Python 3.8+
-2. Create a virtual environment (if needed)
-3. Install dependencies
-4. Launch the tool
+1. ✅ Check for Python 3.8+
+2. ✅ Create a virtual environment (if needed)
+3. ✅ Install dependencies (only `rich` required for core)
+4. ✅ Launch the tool
+5. ✅ Handle optional dependencies gracefully
+
+**That's it!** The tool is fully self-contained and auto-bootstraps everything needed.
 
 ## Manual Installation
 
