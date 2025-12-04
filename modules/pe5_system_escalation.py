@@ -27,6 +27,7 @@ from modules.pe5_utils import PE5Utils
 import os
 import sys
 import json
+from pathlib import Path
 
 
 class PE5SystemEscalationModule:
