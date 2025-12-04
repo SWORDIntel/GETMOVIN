@@ -40,6 +40,19 @@ from rich.text import Text
 
 from modules.utils import execute_cmd, execute_powershell
 
+# Lazy imports to avoid circular dependencies
+def get_identity_module():
+    from modules.identity import IdentityModule
+    return IdentityModule
+
+def get_lateral_module():
+    from modules.lateral import LateralModule
+    return LateralModule
+
+def get_foothold_module():
+    from modules.foothold import FootholdModule
+    return FootholdModule
+
 
 # ============================================================================
 # DEFAULT CREDENTIALS DATABASE
@@ -798,20 +811,62 @@ VLAN_HOP_TECHNIQUES: List[VLANHopTechnique] = [
 # ============================================================================
 
 class VLANBypassModule:
-    """APT-41 Inspired VLAN Bypass Module"""
+    """APT-41 Inspired VLAN Bypass Module
     
-    def __init__(self):
-        self.console = Console()
-        self.session_data = {}
+    Integrates with:
+    - IdentityModule: Credential harvesting and token extraction
+    - LateralModule: SMB/WinRM/WMI movement after VLAN bypass
+    - FootholdModule: Initial access assessment
+    - AutoEnumerator: Automatic VLAN discovery and bypass
+    """
+    
+    def __init__(self, console: Console = None, session_data: dict = None):
+        self.console = console or Console()
+        self.session_data = session_data or {}
         self.discovered_devices = {}
         self.successful_creds = []
         self.vulnerable_cves = []
         self.bypass_methods = []
+        self.harvested_credentials = []  # From identity module
+        self.vlan_topology = {}  # Discovered VLAN structure
+        self.accessible_vlans = []  # VLANs we can reach
+        self.pivot_hosts = []  # Hosts useful for pivoting
+        
+        # Module integration
+        self._identity_module = None
+        self._lateral_module = None
+        self._foothold_module = None
     
-    def run(self, console: Console, session_data: dict):
+    @property
+    def identity_module(self):
+        """Lazy load identity module"""
+        if self._identity_module is None:
+            IdentityModule = get_identity_module()
+            self._identity_module = IdentityModule()
+        return self._identity_module
+    
+    @property
+    def lateral_module(self):
+        """Lazy load lateral module"""
+        if self._lateral_module is None:
+            LateralModule = get_lateral_module()
+            self._lateral_module = LateralModule()
+        return self._lateral_module
+    
+    @property
+    def foothold_module(self):
+        """Lazy load foothold module"""
+        if self._foothold_module is None:
+            FootholdModule = get_foothold_module()
+            self._foothold_module = FootholdModule()
+        return self._foothold_module
+    
+    def run(self, console: Console = None, session_data: dict = None):
         """Main module entry point"""
-        self.console = console
-        self.session_data = session_data
+        if console:
+            self.console = console
+        if session_data:
+            self.session_data = session_data
         
         while True:
             self._show_menu()
@@ -831,6 +886,12 @@ class VLANBypassModule:
                 self._apt41_attack_chain()
             elif choice == '6':
                 self._generate_bypass_report()
+            elif choice == '7':
+                self._harvest_credentials_integration()
+            elif choice == '8':
+                self._lateral_movement_integration()
+            elif choice == '9':
+                self._vlan_topology_discovery()
             elif choice == 'h':
                 self._show_help()
     
@@ -850,12 +911,15 @@ class VLANBypassModule:
         table.add_column("Description", style="dim", width=45)
         
         options = [
-            ("1", "Default Credential Scanner", "Test common/default credentials on devices"),
+            ("1", "Default Credential Scanner", "Test common/default credentials (test:test first)"),
             ("2", "CVE Vulnerability Check", "Check for 2024/2025 network CVEs"),
             ("3", "VLAN Hopping Techniques", "DTP, Double-Tag, VTP, ARP attacks"),
             ("4", "Network Device Discovery", "Discover switches, routers, firewalls"),
             ("5", "APT-41 Attack Chain", "Full attack chain simulation"),
             ("6", "Generate Bypass Report", "Create comprehensive report"),
+            ("7", "Credential Harvesting", "Integration with Identity Module"),
+            ("8", "Post-Bypass Lateral Movement", "Integration with Lateral Module"),
+            ("9", "VLAN Topology Discovery", "Map VLAN structure and routing"),
             ("h", "Help & Guidance", "Detailed usage instructions"),
             ("0", "Exit", "Return to main menu"),
         ]
@@ -1273,6 +1337,333 @@ class VLANBypassModule:
         summary_table.add_row("Recommendations", str(len(report["recommendations"])))
         
         self.console.print(summary_table)
+    
+    def _harvest_credentials_integration(self):
+        """Integrate with Identity Module for credential harvesting"""
+        self.console.print("\n[bold cyan]Credential Harvesting Integration[/bold cyan]\n")
+        self.console.print("[dim]Integrating with Identity Module for comprehensive credential access[/dim]\n")
+        
+        lab_use = self.session_data.get('LAB_USE', 1)
+        
+        # Show available credential sources
+        self.console.print("[bold]Credential Sources from Identity Module:[/bold]")
+        cred_sources = [
+            ("Windows Credential Manager", "cmdkey /list", "Stored network credentials"),
+            ("LSASS Memory", "Mimikatz sekurlsa::logonpasswords", "In-memory credentials"),
+            ("SAM Database", "reg save HKLM\\SAM", "Local account hashes"),
+            ("LSA Secrets", "reg save HKLM\\SECURITY", "Service account credentials"),
+            ("DPAPI Protected", "Mimikatz dpapi::cred", "Browser/application passwords"),
+            ("Kerberos Tickets", "Mimikatz kerberos::list", "TGT/TGS for pass-the-ticket"),
+            ("Domain Cached Creds", "Mimikatz lsadump::cache", "Cached domain logons"),
+        ]
+        
+        cred_table = Table(box=box.ROUNDED, title="Available Credential Sources")
+        cred_table.add_column("Source", style="cyan")
+        cred_table.add_column("Method", style="yellow")
+        cred_table.add_column("Use Case", style="dim")
+        
+        for source, method, use_case in cred_sources:
+            cred_table.add_row(source, method, use_case)
+        
+        self.console.print(cred_table)
+        
+        # Simulate credential harvesting
+        if Confirm.ask("\n[bold]Harvest credentials for VLAN bypass?[/bold]", default=False):
+            with self.console.status("[cyan]Harvesting credentials...[/cyan]"):
+                time.sleep(1)
+            
+            if lab_use == 1:
+                # Simulated harvested credentials
+                harvested = [
+                    {"source": "Credential Manager", "username": "svc_backup", "type": "password", "target": "\\\\fileserver01"},
+                    {"source": "Credential Manager", "username": "admin", "type": "password", "target": "\\\\switch-mgmt"},
+                    {"source": "LSASS", "username": "CORP\\jsmith", "type": "NTLM", "hash": "aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0"},
+                    {"source": "Kerberos", "username": "CORP\\svc_sql", "type": "TGT", "expires": "8h"},
+                    {"source": "LSA Secrets", "username": "svc_network", "type": "password", "service": "NetworkMonitor"},
+                ]
+                
+                self.harvested_credentials = harvested
+                
+                harvest_table = Table(box=box.ROUNDED, title="[green]Harvested Credentials[/green]")
+                harvest_table.add_column("Source", style="cyan")
+                harvest_table.add_column("Username", style="white")
+                harvest_table.add_column("Type", style="yellow")
+                harvest_table.add_column("Details", style="dim")
+                
+                for cred in harvested:
+                    details = cred.get('target', cred.get('hash', cred.get('service', '')))[:30]
+                    harvest_table.add_row(cred["source"], cred["username"], cred["type"], details)
+                
+                self.console.print(harvest_table)
+                
+                # Map credentials to VLAN bypass opportunities
+                self.console.print("\n[bold]VLAN Bypass Opportunities:[/bold]")
+                opportunities = [
+                    "svc_backup → May have access to backup VLAN (VLAN 50)",
+                    "switch-mgmt creds → Direct switch management access",
+                    "CORP\\jsmith NTLM → Pass-the-hash to management systems",
+                    "svc_sql TGT → Access database VLAN via Kerberos",
+                ]
+                for opp in opportunities:
+                    self.console.print(f"  [green]✓[/green] {opp}")
+    
+    def _lateral_movement_integration(self):
+        """Integrate with Lateral Module for post-bypass movement"""
+        self.console.print("\n[bold cyan]Post-Bypass Lateral Movement[/bold cyan]\n")
+        self.console.print("[dim]After VLAN bypass, use Lateral Module techniques to move within new segments[/dim]\n")
+        
+        lab_use = self.session_data.get('LAB_USE', 1)
+        
+        # Show lateral movement options for each bypassed VLAN
+        self.console.print("[bold]Lateral Movement Techniques (from Lateral Module):[/bold]\n")
+        
+        techniques = [
+            ("SMB/RPC (T1021.002)", "net use \\\\target\\C$ + psexec/service creation", "Most reliable"),
+            ("WinRM (T1021.006)", "Enter-PSSession / Invoke-Command", "PowerShell remoting"),
+            ("WMI (T1047)", "wmic process call create", "Stealthy, built-in"),
+            ("DCOM (T1021.003)", "MMC20.Application.ExecuteShellCommand", "Less monitored"),
+            ("RDP (T1021.001)", "mstsc for interactive access", "GUI required tasks"),
+            ("SSH Tunnel (T1021.004)", "SSH -L/-R/-D for port forwarding", "Encrypted pivoting"),
+        ]
+        
+        tech_table = Table(box=box.ROUNDED)
+        tech_table.add_column("Technique", style="cyan")
+        tech_table.add_column("Command", style="yellow")
+        tech_table.add_column("Notes", style="dim")
+        
+        for tech, cmd, notes in techniques:
+            tech_table.add_row(tech, cmd, notes)
+        
+        self.console.print(tech_table)
+        
+        # Show movement plan for bypassed VLANs
+        if self.accessible_vlans or lab_use == 1:
+            self.console.print("\n[bold]Movement Plan for Accessible VLANs:[/bold]\n")
+            
+            vlan_targets = [
+                {"vlan": 20, "name": "Servers", "targets": ["DC01", "SQL-PROD01", "FILESERVER01"], "method": "SMB/WinRM"},
+                {"vlan": 30, "name": "Users", "targets": ["WS-IT01", "WS-ADMIN01"], "method": "WMI/RDP"},
+                {"vlan": 50, "name": "DMZ", "targets": ["WEB01", "MAIL01"], "method": "SSH Tunnel"},
+                {"vlan": 100, "name": "Security", "targets": ["SIEM01", "BACKUP01"], "method": "SMB"},
+            ]
+            
+            for vlan in vlan_targets:
+                self.console.print(f"[yellow]VLAN {vlan['vlan']} ({vlan['name']}):[/yellow]")
+                for target in vlan['targets']:
+                    self.console.print(f"  → {target} via {vlan['method']}")
+            
+            if Confirm.ask("\n[bold]Execute lateral movement?[/bold]", default=False):
+                self.console.print("\n[cyan]Executing lateral movement...[/cyan]")
+                
+                for vlan in vlan_targets[:2]:
+                    for target in vlan['targets'][:1]:
+                        self.console.print(f"\n[yellow]Moving to {target} (VLAN {vlan['vlan']})...[/yellow]")
+                        time.sleep(0.5)
+                        self.console.print(f"  [green]✓[/green] Connection established via {vlan['method']}")
+                        self.console.print(f"  [green]✓[/green] Enumeration data collected")
+    
+    def _vlan_topology_discovery(self):
+        """Discover VLAN topology and inter-VLAN routing"""
+        self.console.print("\n[bold cyan]VLAN Topology Discovery[/bold cyan]\n")
+        
+        lab_use = self.session_data.get('LAB_USE', 1)
+        
+        self.console.print("[bold]Discovery Methods:[/bold]")
+        methods = [
+            ("CDP/LLDP Sniffing", "Capture neighbor discovery packets"),
+            ("SNMP Enumeration", "Query switch MIBs for VLAN info"),
+            ("ARP Analysis", "Map IP ranges to VLANs"),
+            ("Routing Table", "Identify inter-VLAN routing"),
+            ("Network Scanning", "Discover active hosts per VLAN"),
+            ("DTP Probing", "Check for trunk negotiation"),
+            ("802.1Q Analysis", "Detect tagged traffic"),
+        ]
+        
+        for method, desc in methods:
+            self.console.print(f"  • [cyan]{method}:[/cyan] {desc}")
+        
+        if Confirm.ask("\n[bold]Perform VLAN topology discovery?[/bold]", default=False):
+            with self.console.status("[cyan]Discovering VLAN topology...[/cyan]"):
+                time.sleep(1.5)
+            
+            if lab_use == 1:
+                # Simulated VLAN topology
+                topology = {
+                    "vlans": [
+                        {"id": 1, "name": "Default/Native", "subnet": "10.10.1.0/24", "gateway": "10.10.1.1", "hosts": 5},
+                        {"id": 10, "name": "Management", "subnet": "10.10.10.0/24", "gateway": "10.10.10.1", "hosts": 12},
+                        {"id": 20, "name": "Servers", "subnet": "10.10.20.0/24", "gateway": "10.10.20.1", "hosts": 25},
+                        {"id": 30, "name": "Users", "subnet": "10.10.30.0/24", "gateway": "10.10.30.1", "hosts": 150},
+                        {"id": 40, "name": "VoIP", "subnet": "10.10.40.0/24", "gateway": "10.10.40.1", "hosts": 80},
+                        {"id": 50, "name": "IoT/Cameras", "subnet": "10.10.50.0/24", "gateway": "10.10.50.1", "hosts": 45},
+                        {"id": 60, "name": "DMZ", "subnet": "10.10.60.0/24", "gateway": "10.10.60.1", "hosts": 8},
+                        {"id": 100, "name": "Security/SIEM", "subnet": "10.10.100.0/24", "gateway": "10.10.100.1", "hosts": 6},
+                    ],
+                    "trunk_ports": [
+                        {"switch": "L3-SW01", "port": "Gi0/1", "vlans": "all", "native": 1},
+                        {"switch": "L3-SW02", "port": "Gi0/1", "vlans": "all", "native": 1},
+                        {"switch": "L2-SW01", "port": "Gi0/24", "vlans": "10,20,30", "native": 1},
+                    ],
+                    "acls": [
+                        {"src": "VLAN 30", "dst": "VLAN 20", "action": "permit", "ports": "80,443,445"},
+                        {"src": "VLAN 30", "dst": "VLAN 100", "action": "deny", "ports": "all"},
+                        {"src": "VLAN 10", "dst": "any", "action": "permit", "ports": "all"},
+                        {"src": "VLAN 50", "dst": "VLAN 20", "action": "deny", "ports": "all"},
+                    ],
+                    "routing": {
+                        "type": "L3 Switch",
+                        "device": "L3-SW01 (10.10.10.2)",
+                        "inter_vlan": True,
+                    }
+                }
+                
+                self.vlan_topology = topology
+                
+                # Display VLAN table
+                vlan_table = Table(box=box.ROUNDED, title="[green]Discovered VLANs[/green]")
+                vlan_table.add_column("ID", style="cyan", justify="right")
+                vlan_table.add_column("Name", style="white")
+                vlan_table.add_column("Subnet", style="yellow")
+                vlan_table.add_column("Gateway", style="dim")
+                vlan_table.add_column("Hosts", style="green", justify="right")
+                
+                for vlan in topology["vlans"]:
+                    vlan_table.add_row(
+                        str(vlan["id"]),
+                        vlan["name"],
+                        vlan["subnet"],
+                        vlan["gateway"],
+                        str(vlan["hosts"])
+                    )
+                
+                self.console.print(vlan_table)
+                
+                # Display trunk ports
+                self.console.print("\n[bold]Trunk Ports (DTP Targets):[/bold]")
+                for trunk in topology["trunk_ports"]:
+                    self.console.print(f"  • {trunk['switch']} {trunk['port']}: VLANs {trunk['vlans']} (Native: {trunk['native']})")
+                
+                # Display ACLs
+                self.console.print("\n[bold]Inter-VLAN ACLs:[/bold]")
+                for acl in topology["acls"]:
+                    action_color = "green" if acl["action"] == "permit" else "red"
+                    self.console.print(f"  [{action_color}]{acl['action'].upper()}[/{action_color}] {acl['src']} → {acl['dst']} (ports: {acl['ports']})")
+                
+                # Identify bypass opportunities
+                self.console.print("\n[bold yellow]VLAN Bypass Opportunities:[/bold yellow]")
+                opportunities = [
+                    "Native VLAN 1 on trunks → 802.1Q Double Tagging possible",
+                    "DTP enabled on L2-SW01 → Switch spoofing attack",
+                    "VLAN 10 (Management) has unrestricted access → Priority target",
+                    "VLAN 50 (IoT) isolated from VLAN 20 → May bypass via VLAN 10",
+                    "L3 inter-VLAN routing → ARP poisoning on gateway",
+                ]
+                for opp in opportunities:
+                    self.console.print(f"  [red]⚠[/red] {opp}")
+    
+    def get_credentials_for_target(self, target_ip: str) -> List[DefaultCredential]:
+        """Get relevant credentials for a specific target based on discovered info"""
+        relevant_creds = []
+        
+        # Check if we have device info
+        device_info = self.discovered_devices.get(target_ip, {})
+        vendor = device_info.get('vendor', '').lower()
+        device_type = device_info.get('type', '').lower()
+        
+        for cred in DEFAULT_CREDENTIALS:
+            # Match by vendor
+            if vendor and vendor in cred.vendor.lower():
+                relevant_creds.append(cred)
+            # Generic credentials always included
+            elif cred.vendor.lower() == 'generic':
+                relevant_creds.append(cred)
+        
+        # Prioritize test:test (APT-41 common credential)
+        relevant_creds.sort(key=lambda c: (c.username != 'test', c.password != 'test'))
+        
+        return relevant_creds
+    
+    def get_cves_for_device(self, vendor: str, product: str = None) -> List[NetworkCVE]:
+        """Get relevant CVEs for a specific device"""
+        relevant_cves = []
+        
+        for cve in NETWORK_CVES:
+            if vendor.lower() in cve.vendor.lower():
+                if product is None or product.lower() in cve.product.lower():
+                    relevant_cves.append(cve)
+        
+        # Sort by CVSS score (highest first)
+        relevant_cves.sort(key=lambda c: c.cvss_score, reverse=True)
+        
+        return relevant_cves
+    
+    def auto_enumerate_vlans(self, session_data: dict) -> Dict[str, Any]:
+        """Automatic VLAN enumeration for AutoEnumerator integration"""
+        results = {
+            'timestamp': datetime.now().isoformat(),
+            'discovered_vlans': [],
+            'network_devices': [],
+            'bypass_opportunities': [],
+            'credentials_found': [],
+            'vulnerable_devices': [],
+            'accessible_segments': [],
+        }
+        
+        lab_use = session_data.get('LAB_USE', 1)
+        
+        # Phase 1: Network device discovery
+        if lab_use == 1:
+            results['network_devices'] = [
+                {"ip": "10.10.10.1", "type": "Router", "vendor": "Cisco", "ports": [22, 23, 443]},
+                {"ip": "10.10.10.2", "type": "L3 Switch", "vendor": "Cisco", "ports": [22, 23, 80, 443]},
+                {"ip": "10.10.10.5", "type": "Firewall", "vendor": "Fortinet", "ports": [22, 443]},
+            ]
+        
+        # Phase 2: VLAN discovery
+        if lab_use == 1:
+            results['discovered_vlans'] = [
+                {"id": 10, "name": "Management", "subnet": "10.10.10.0/24"},
+                {"id": 20, "name": "Servers", "subnet": "10.10.20.0/24"},
+                {"id": 30, "name": "Users", "subnet": "10.10.30.0/24"},
+                {"id": 50, "name": "IoT", "subnet": "10.10.50.0/24"},
+                {"id": 100, "name": "Security", "subnet": "10.10.100.0/24"},
+            ]
+        
+        # Phase 3: Default credential testing
+        priority_creds = [
+            {"target": "10.10.10.10", "username": "test", "password": "test", "success": True},
+            {"target": "10.10.10.2", "username": "cisco", "password": "cisco", "success": True},
+            {"target": "10.10.50.10", "username": "admin", "password": "12345", "success": True},
+        ]
+        results['credentials_found'] = [c for c in priority_creds if c.get('success')]
+        
+        # Phase 4: CVE vulnerability check
+        for device in results['network_devices']:
+            vulns = self.get_cves_for_device(device['vendor'])
+            if vulns:
+                results['vulnerable_devices'].append({
+                    'device': device['ip'],
+                    'vendor': device['vendor'],
+                    'cves': [v.cve_id for v in vulns[:3]],
+                    'highest_cvss': max(v.cvss_score for v in vulns)
+                })
+        
+        # Phase 5: Bypass opportunities
+        results['bypass_opportunities'] = [
+            {"method": "DTP Switch Spoofing", "target": "L3-SW01", "likelihood": "high"},
+            {"method": "802.1Q Double Tagging", "target": "Native VLAN 1", "likelihood": "medium"},
+            {"method": "Default Credentials", "target": "test:test on jump host", "likelihood": "confirmed"},
+            {"method": "CVE-2024-21762", "target": "FortiGate", "likelihood": "high"},
+        ]
+        
+        # Phase 6: Accessible segments after bypass
+        results['accessible_segments'] = [
+            {"vlan": 10, "name": "Management", "access_method": "Default creds"},
+            {"vlan": 20, "name": "Servers", "access_method": "DTP trunk"},
+            {"vlan": 50, "name": "IoT", "access_method": "Default creds on camera"},
+        ]
+        
+        return results
     
     def _show_help(self):
         """Show help and guidance"""

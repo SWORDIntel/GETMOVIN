@@ -5,6 +5,7 @@ Enhanced with all available tooling:
 - Relay client connectivity checks
 - Enhanced privilege escalation enumeration
 - Comprehensive module integration
+- APT-41 VLAN bypass integration
 """
 
 import json
@@ -25,6 +26,7 @@ from modules.loghunter_integration import LogHunter, WindowsMoonwalk
 from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
 from modules.diagram_generator import DiagramGenerator
+from modules.vlan_bypass import VLANBypassModule, DEFAULT_CREDENTIALS, NETWORK_CVES, VLAN_HOP_TECHNIQUES
 
 
 class AutoEnumerator:
@@ -48,7 +50,8 @@ class AutoEnumerator:
             'privilege_escalation': {},  # PE5 and other PE methods
             'relay_connectivity': {},  # Relay client checks
             'pe5_status': {},  # PE5 framework status
-            'tooling_integration': {}  # All tooling usage
+            'tooling_integration': {},  # All tooling usage
+            'vlan_bypass': {},  # APT-41 VLAN bypass enumeration
         }
         self.lab_use = session_data.get('LAB_USE', 0)
         self.max_depth = session_data.get('AUTO_ENUMERATE_DEPTH', 3)  # Maximum lateral movement depth (configurable)
@@ -60,6 +63,7 @@ class AutoEnumerator:
         self.pe5_module = None
         self.pe5_utils = PE5Utils()
         self.relay_client = None
+        self.vlan_bypass_module = None  # APT-41 VLAN bypass module
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
@@ -140,10 +144,14 @@ class AutoEnumerator:
             task10 = progress.add_task("[cyan]Tooling Integration...", total=100)
             self._enumerate_tooling_integration(progress, task10)
             
+            # APT-41 VLAN Bypass enumeration
+            task11 = progress.add_task("[cyan]VLAN Bypass Analysis...", total=100)
+            self._enumerate_vlan_bypass(progress, task11)
+            
             # Moonwalk cleanup
             if self.use_moonwalk:
-                task11 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
-                self._perform_moonwalk_cleanup(progress, task11)
+                task12 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
+                self._perform_moonwalk_cleanup(progress, task12)
         
         return self.enumeration_data
     
@@ -1313,6 +1321,205 @@ class AutoEnumerator:
         
         except Exception as e:
             self.enumeration_data['tooling_integration']['error'] = str(e)
+            progress.update(task, advance=100)
+    
+    def _enumerate_vlan_bypass(self, progress, task):
+        """Enumerate VLAN bypass opportunities using APT-41 techniques"""
+        try:
+            vlan_data = {
+                'network_devices': [],
+                'discovered_vlans': [],
+                'default_credentials_found': [],
+                'vulnerable_cves': [],
+                'bypass_techniques': [],
+                'accessible_segments': [],
+                'topology': {},
+            }
+            
+            # Initialize VLAN bypass module
+            progress.update(task, advance=10, description="[cyan]Initializing VLAN bypass module...")
+            if not self.vlan_bypass_module:
+                self.vlan_bypass_module = VLANBypassModule(self.console, self.session_data)
+            
+            # Phase 1: Network device discovery
+            progress.update(task, advance=15, description="[cyan]Discovering network devices...")
+            
+            # Get network info from previous enumeration
+            network_info = self.enumeration_data.get('network', {})
+            arp_targets = network_info.get('arp_targets', [])
+            
+            # Simulate or perform network device discovery
+            if self.lab_use == 1:
+                vlan_data['network_devices'] = [
+                    {"ip": "10.10.10.1", "type": "Router", "vendor": "Cisco", "model": "ISR4321", "ports": [22, 23, 443]},
+                    {"ip": "10.10.10.2", "type": "L3 Switch", "vendor": "Cisco", "model": "Catalyst9300", "ports": [22, 23, 80, 443]},
+                    {"ip": "10.10.10.3", "type": "L3 Switch", "vendor": "Cisco", "model": "Catalyst9300", "ports": [22, 23, 80, 443]},
+                    {"ip": "10.10.10.5", "type": "Firewall", "vendor": "Fortinet", "model": "FortiGate100F", "ports": [22, 443]},
+                    {"ip": "10.10.10.6", "type": "Firewall", "vendor": "Palo Alto", "model": "PA-3260", "ports": [22, 443]},
+                    {"ip": "10.10.50.10", "type": "Camera", "vendor": "Hikvision", "model": "DS-2CD2143G0", "ports": [80, 443, 554]},
+                    {"ip": "10.10.50.20", "type": "HVAC Controller", "vendor": "Honeywell", "model": "WEB-8000", "ports": [80, 443, 502]},
+                ]
+            
+            # Phase 2: VLAN topology discovery
+            progress.update(task, advance=15, description="[cyan]Mapping VLAN topology...")
+            
+            if self.lab_use == 1:
+                vlan_data['discovered_vlans'] = [
+                    {"id": 1, "name": "Default/Native", "subnet": "10.10.1.0/24", "hosts": 5},
+                    {"id": 10, "name": "Management", "subnet": "10.10.10.0/24", "hosts": 15},
+                    {"id": 20, "name": "Servers", "subnet": "10.10.20.0/24", "hosts": 30},
+                    {"id": 30, "name": "Users", "subnet": "10.10.30.0/24", "hosts": 200},
+                    {"id": 40, "name": "VoIP", "subnet": "10.10.40.0/24", "hosts": 100},
+                    {"id": 50, "name": "IoT/Cameras", "subnet": "10.10.50.0/24", "hosts": 50},
+                    {"id": 60, "name": "DMZ", "subnet": "10.10.60.0/24", "hosts": 10},
+                    {"id": 100, "name": "Security/SIEM", "subnet": "10.10.100.0/24", "hosts": 8},
+                ]
+                
+                vlan_data['topology'] = {
+                    'trunk_ports': [
+                        {"switch": "L3-SW01", "port": "Gi0/1", "native_vlan": 1, "allowed_vlans": "all"},
+                        {"switch": "L3-SW02", "port": "Gi0/1", "native_vlan": 1, "allowed_vlans": "all"},
+                    ],
+                    'inter_vlan_routing': True,
+                    'router': "10.10.10.1",
+                    'acls': [
+                        {"src": "VLAN30", "dst": "VLAN100", "action": "deny"},
+                        {"src": "VLAN50", "dst": "VLAN20", "action": "deny"},
+                        {"src": "VLAN10", "dst": "any", "action": "permit"},
+                    ]
+                }
+            
+            # Phase 3: Default credential testing (test:test first - APT-41)
+            progress.update(task, advance=15, description="[cyan]Testing default credentials...")
+            
+            # Priority: test:test first (APT-41 common credential)
+            priority_targets = [
+                {"ip": "10.10.10.10", "username": "test", "password": "test", "success": True, "device": "JUMP-HOST01"},
+                {"ip": "10.10.10.2", "username": "cisco", "password": "cisco", "success": True, "device": "L3-SW01"},
+                {"ip": "10.10.50.10", "username": "admin", "password": "12345", "success": True, "device": "CAM-LOBBY01"},
+                {"ip": "10.10.50.20", "username": "admin", "password": "admin", "success": True, "device": "HVAC-01"},
+            ]
+            
+            if self.lab_use == 1:
+                vlan_data['default_credentials_found'] = [t for t in priority_targets if t['success']]
+            
+            # Phase 4: CVE vulnerability assessment
+            progress.update(task, advance=15, description="[cyan]Checking network CVEs...")
+            
+            for device in vlan_data['network_devices']:
+                vendor = device.get('vendor', '')
+                relevant_cves = self.vlan_bypass_module.get_cves_for_device(vendor)
+                
+                if relevant_cves:
+                    for cve in relevant_cves[:3]:  # Top 3 CVEs per device
+                        vlan_data['vulnerable_cves'].append({
+                            'device_ip': device['ip'],
+                            'device_type': device['type'],
+                            'vendor': vendor,
+                            'cve_id': cve.cve_id,
+                            'cvss': cve.cvss_score,
+                            'vlan_bypass': cve.vlan_bypass,
+                            'auth_bypass': cve.auth_bypass,
+                            'rce': cve.rce,
+                        })
+            
+            # Phase 5: Identify bypass techniques
+            progress.update(task, advance=15, description="[cyan]Analyzing bypass opportunities...")
+            
+            bypass_opportunities = []
+            
+            # Check for DTP vulnerability (native VLAN 1)
+            if vlan_data['topology'].get('trunk_ports'):
+                for trunk in vlan_data['topology']['trunk_ports']:
+                    if trunk.get('native_vlan') == 1:
+                        bypass_opportunities.append({
+                            'technique': 'DTP Switch Spoofing',
+                            'target': trunk['switch'],
+                            'port': trunk['port'],
+                            'likelihood': 'high',
+                            'mitre': 'T1599.001',
+                        })
+                        bypass_opportunities.append({
+                            'technique': '802.1Q Double Tagging',
+                            'target': f"Native VLAN {trunk['native_vlan']}",
+                            'port': trunk['port'],
+                            'likelihood': 'medium',
+                            'mitre': 'T1599.001',
+                        })
+            
+            # Check for credential-based bypass
+            if vlan_data['default_credentials_found']:
+                for cred in vlan_data['default_credentials_found']:
+                    bypass_opportunities.append({
+                        'technique': 'Default Credentials',
+                        'target': cred['device'],
+                        'credentials': f"{cred['username']}:{cred['password']}",
+                        'likelihood': 'confirmed',
+                        'mitre': 'T1078',
+                    })
+            
+            # Check for CVE-based bypass
+            critical_cves = [c for c in vlan_data['vulnerable_cves'] if c['cvss'] >= 9.0]
+            for cve in critical_cves[:5]:
+                bypass_opportunities.append({
+                    'technique': f"CVE Exploitation ({cve['cve_id']})",
+                    'target': cve['device_ip'],
+                    'cvss': cve['cvss'],
+                    'likelihood': 'high' if cve['cvss'] >= 9.5 else 'medium',
+                    'mitre': 'T1190',
+                })
+            
+            vlan_data['bypass_techniques'] = bypass_opportunities
+            
+            # Phase 6: Determine accessible segments after bypass
+            progress.update(task, advance=10, description="[cyan]Mapping accessible segments...")
+            
+            if bypass_opportunities:
+                # Simulate which VLANs become accessible
+                accessible = []
+                
+                # Management VLAN access via switch credentials
+                if any(b['target'] == 'L3-SW01' for b in bypass_opportunities):
+                    accessible.append({
+                        'vlan_id': 10,
+                        'vlan_name': 'Management',
+                        'access_method': 'Switch credentials (cisco:cisco)',
+                        'high_value_targets': ['L3-SW01', 'L3-SW02', 'FW-01'],
+                    })
+                
+                # Server VLAN via trunk negotiation
+                if any(b['technique'] == 'DTP Switch Spoofing' for b in bypass_opportunities):
+                    accessible.append({
+                        'vlan_id': 20,
+                        'vlan_name': 'Servers',
+                        'access_method': 'DTP trunk negotiation',
+                        'high_value_targets': ['DC01', 'SQL-PROD01', 'FILESERVER01'],
+                    })
+                    accessible.append({
+                        'vlan_id': 100,
+                        'vlan_name': 'Security/SIEM',
+                        'access_method': 'DTP trunk negotiation',
+                        'high_value_targets': ['SIEM01', 'BACKUP01'],
+                    })
+                
+                # IoT VLAN via camera credentials
+                if any('CAM-' in str(b.get('target', '')) for b in bypass_opportunities):
+                    accessible.append({
+                        'vlan_id': 50,
+                        'vlan_name': 'IoT/Cameras',
+                        'access_method': 'Default credentials (admin:12345)',
+                        'high_value_targets': ['CAM-LOBBY01', 'HVAC-01', 'BMS-01'],
+                    })
+                
+                vlan_data['accessible_segments'] = accessible
+            
+            # Store enumeration data
+            self.enumeration_data['vlan_bypass'] = vlan_data
+            
+            progress.update(task, advance=5, description="[green]VLAN bypass analysis complete")
+            
+        except Exception as e:
+            self.enumeration_data['vlan_bypass'] = {'error': str(e)}
             progress.update(task, advance=100)
     
     def _perform_moonwalk_cleanup(self, progress, task):
