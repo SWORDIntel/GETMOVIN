@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -33,18 +33,17 @@ class FootholdModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Who am I? (Identity & Privileges) [APT-41: Discovery]")
-            table.add_row("2", "What is this host? (Role Classification) [APT-41: Discovery]")
-            table.add_row("3", "What can this host see? (Network Visibility) [APT-41: Discovery]")
-            table.add_row("4", "APT-41 Initial Access Techniques")
-            table.add_row("5", "Generate foothold report")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Who am I? (Identity & Privileges) [APT-41: Discovery]'},
+                {'key': '2', 'label': 'What is this host? (Role Classification) [APT-41: Discovery]'},
+                {'key': '3', 'label': 'What can this host see? (Network Visibility) [APT-41: Discovery]'},
+                {'key': '4', 'label': 'APT-41 Initial Access Techniques'},
+                {'key': '5', 'label': 'Generate foothold report'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

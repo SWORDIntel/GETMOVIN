@@ -6,6 +6,7 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.loghunter_integration import WindowsMoonwalk
+from modules.utils import select_menu_option
 
 
 class ConsolidationModule:
@@ -32,19 +33,18 @@ class ConsolidationModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Strategic Objectives [APT-41: Objectives]")
-            table.add_row("2", "Domain Controller Access [APT-41: Credential Access]")
-            table.add_row("3", "Persistence Mechanisms [APT-41: Persistence]")
-            table.add_row("4", "Central Control Planes [APT-41: Persistence]")
-            table.add_row("5", "Clean-up Considerations [APT-41: Defense Evasion]")
-            table.add_row("6", "APT-41 Persistence Techniques")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Strategic Objectives [APT-41: Objectives]'},
+                {'key': '2', 'label': 'Domain Controller Access [APT-41: Credential Access]'},
+                {'key': '3', 'label': 'Persistence Mechanisms [APT-41: Persistence]'},
+                {'key': '4', 'label': 'Central Control Planes [APT-41: Persistence]'},
+                {'key': '5', 'label': 'Clean-up Considerations [APT-41: Defense Evasion]'},
+                {'key': '6', 'label': 'APT-41 Persistence Techniques'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

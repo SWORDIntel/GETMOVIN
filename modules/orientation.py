@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_command, execute_powershell, execute_cmd
+from modules.utils import execute_command, execute_powershell, execute_cmd, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -33,19 +33,18 @@ class OrientationModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Identity & Privilege Mapping [APT-41: Discovery]")
-            table.add_row("2", "Host Role Classification [APT-41: Discovery]")
-            table.add_row("3", "Network Visibility Assessment [APT-41: Discovery]")
-            table.add_row("4", "Service Account Discovery [APT-41: Discovery]")
-            table.add_row("5", "Scheduled Task Analysis [APT-41: Persistence]")
-            table.add_row("6", "Security Software Discovery [APT-41: Defense Evasion]")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Identity & Privilege Mapping [APT-41: Discovery]'},
+                {'key': '2', 'label': 'Host Role Classification [APT-41: Discovery]'},
+                {'key': '3', 'label': 'Network Visibility Assessment [APT-41: Discovery]'},
+                {'key': '4', 'label': 'Service Account Discovery [APT-41: Discovery]'},
+                {'key': '5', 'label': 'Scheduled Task Analysis [APT-41: Persistence]'},
+                {'key': '6', 'label': 'Security Software Discovery [APT-41: Defense Evasion]'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

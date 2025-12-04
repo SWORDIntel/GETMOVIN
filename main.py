@@ -30,6 +30,7 @@ logging.basicConfig(level=logging.WARNING)
 
 # Import modules
 from modules.foothold import FootholdModule
+from modules.utils import select_menu_option
 from modules.orientation import OrientationModule
 from modules.identity import IdentityModule
 from modules.lateral import LateralModule
@@ -252,9 +253,18 @@ class LateralMovementTUI:
         while True:
             self.show_main_menu()
             
-            choice = Prompt.ask(
-                "[bold cyan]Select module[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '?'],
+            # Create menu options for navigation
+            menu_options = []
+            for key in sorted(self.modules.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+                name, _ = self.modules[key]
+                menu_options.append({'key': key, 'label': name})
+            menu_options.append({'key': '?', 'label': 'Component Discovery'})
+            menu_options.append({'key': '0', 'label': 'Exit'})
+            
+            choice = select_menu_option(
+                self.console,
+                menu_options,
+                "Select module",
                 default='0'
             )
             

@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -33,20 +33,19 @@ class LateralModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "SMB/RPC-based Movement [APT-41: Lateral Movement]")
-            table.add_row("2", "WinRM / PowerShell Remoting [APT-41: Lateral Movement]")
-            table.add_row("3", "WMI-based Execution [APT-41: Lateral Movement]")
-            table.add_row("4", "RDP-based Pivoting [APT-41: Lateral Movement]")
-            table.add_row("5", "DCOM / COM-based Movement [APT-41: Lateral Movement]")
-            table.add_row("6", "SSH Tunneling & Port Forwarding [APT-41: Command and Control]")
-            table.add_row("7", "APT-41 Custom Tools & Techniques")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'SMB/RPC-based Movement [APT-41: Lateral Movement]'},
+                {'key': '2', 'label': 'WinRM / PowerShell Remoting [APT-41: Lateral Movement]'},
+                {'key': '3', 'label': 'WMI-based Execution [APT-41: Lateral Movement]'},
+                {'key': '4', 'label': 'RDP-based Pivoting [APT-41: Lateral Movement]'},
+                {'key': '5', 'label': 'DCOM / COM-based Movement [APT-41: Lateral Movement]'},
+                {'key': '6', 'label': 'SSH Tunneling & Port Forwarding [APT-41: Command and Control]'},
+                {'key': '7', 'label': 'APT-41 Custom Tools & Techniques'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

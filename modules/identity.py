@@ -6,6 +6,7 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.loghunter_integration import WindowsMoonwalk
+from modules.utils import select_menu_option
 
 
 class IdentityModule:
@@ -32,20 +33,19 @@ class IdentityModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Local Credential Sources [APT-41: Credential Access]")
-            table.add_row("2", "Credential Store Access [APT-41: Credential Access]")
-            table.add_row("3", "Configuration Secrets [APT-41: Credential Access]")
-            table.add_row("4", "User Artifacts [APT-41: Credential Access]")
-            table.add_row("5", "Domain Context & Delegation [APT-41: Discovery]")
-            table.add_row("6", "Token & Ticket Extraction [APT-41: Credential Access]")
-            table.add_row("7", "LSASS Memory Dumping [APT-41: Credential Access]")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Local Credential Sources [APT-41: Credential Access]'},
+                {'key': '2', 'label': 'Credential Store Access [APT-41: Credential Access]'},
+                {'key': '3', 'label': 'Configuration Secrets [APT-41: Credential Access]'},
+                {'key': '4', 'label': 'User Artifacts [APT-41: Credential Access]'},
+                {'key': '5', 'label': 'Domain Context & Delegation [APT-41: Discovery]'},
+                {'key': '6', 'label': 'Token & Ticket Extraction [APT-41: Credential Access]'},
+                {'key': '7', 'label': 'LSASS Memory Dumping [APT-41: Credential Access]'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

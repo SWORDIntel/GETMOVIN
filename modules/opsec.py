@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_powershell
+from modules.utils import execute_powershell, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -33,20 +33,19 @@ class OPSECModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Tool Selection & Native Binaries [APT-41: Defense Evasion]")
-            table.add_row("2", "Detection Evasion [APT-41: Defense Evasion]")
-            table.add_row("3", "Logging & Monitoring Avoidance [APT-41: Defense Evasion]")
-            table.add_row("4", "Behavioral Blending [APT-41: Defense Evasion]")
-            table.add_row("5", "Network OPSEC [APT-41: Command and Control]")
-            table.add_row("6", "OPSEC Checklist")
-            table.add_row("7", "APT-41 Defense Evasion Techniques")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Tool Selection & Native Binaries [APT-41: Defense Evasion]'},
+                {'key': '2', 'label': 'Detection Evasion [APT-41: Defense Evasion]'},
+                {'key': '3', 'label': 'Logging & Monitoring Avoidance [APT-41: Defense Evasion]'},
+                {'key': '4', 'label': 'Behavioral Blending [APT-41: Defense Evasion]'},
+                {'key': '5', 'label': 'Network OPSEC [APT-41: Command and Control]'},
+                {'key': '6', 'label': 'OPSEC Checklist'},
+                {'key': '7', 'label': 'APT-41 Defense Evasion Techniques'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break
