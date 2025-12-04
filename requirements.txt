@@ -1,10 +1,20 @@
 # Windows Lateral Movement Simulation TUI - Dependencies
 # All dependencies are self-contained and can be installed offline
 
-# Terminal UI Framework
+# Core Terminal UI Framework (Required)
 rich>=13.0.0
 
+# Optional: Relay Service Support (for relay/ module)
+# These are only needed if using the relay service
+# websockets>=11.0
+# aiohttp>=3.8.0
+# pyyaml>=6.0
+
+# Optional: Advanced Security (for relay TLS extensions)
+# cryptography>=41.0.0
+
 # Note: This tool is designed to be completely self-contained
-# No online dependencies are required for core functionality
-# Optional external tools (LogHunter, MADCert) enhance functionality
+# Core functionality requires only 'rich' package
+# Optional external tools (LogHunter, MADCert, Relay) enhance functionality
 # but are not required for the tool to operate
+# All optional dependencies are handled gracefully with try/except blocks

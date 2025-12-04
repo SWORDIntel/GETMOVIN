@@ -1,0 +1,29 @@
+# Remote-Guided Auto-Coding Client Configuration
+# Copy this file to ~/.config/ai-relay/client.yaml or config/remote_guided.yaml
+
+# Relay server configuration
+relay_host: "relay.example.com"  # IP address, FQDN, or .onion address
+relay_port: 8889                  # Relay WebSocket port
+
+# Connection settings
+use_tls: true                     # Enable TLS encryption
+transport: "websocket"            # websocket, http2, tor
+
+# Authentication
+auth_token: "YOUR_CLIENT_TOKEN_HERE"  # Token for authenticating with relay
+
+# Tor configuration (if using Tor)
+use_tor: false                    # Enable Tor proxy
+tor_proxy: "127.0.0.1:9050"      # Tor SOCKS5 proxy address
+
+# Reconnection settings
+max_reconnect_attempts: 10       # Maximum reconnection attempts
+reconnect_delay: 1.0             # Initial reconnect delay (seconds)
+max_reconnect_delay: 60.0       # Maximum reconnect delay (seconds)
+
+# AI Controller endpoint (if connecting directly, bypassing relay)
+direct_endpoint: null            # ws://controller.example.com:8888
+
+# Logging
+log_level: "INFO"                # DEBUG, INFO, WARNING, ERROR
+log_file: null                   # Path to log file (null = stdout)

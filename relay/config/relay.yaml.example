@@ -1,0 +1,52 @@
+# AI Relay Daemon Configuration
+# Copy this file to /etc/ai-relay/relay.yaml and customize
+
+# Network listening configuration
+listen:
+  host: "0.0.0.0"  # Listen on all interfaces, or specific IP
+  port: 8889        # Relay WebSocket port
+  ipv6: false       # Enable IPv6 support
+
+# AI Controller endpoint (where to forward connections)
+controller:
+  endpoint: "ws://localhost:8888"  # WebSocket endpoint
+  # For TLS: "wss://controller.example.com:8888"
+  # For Tor: "ws://controller.onion:8888"
+  timeout: 30  # Connection timeout in seconds
+
+# Authentication configuration
+auth:
+  require_auth: true  # Require authentication
+  client_token: "CHANGE_ME_CLIENT_TOKEN"  # Token for client agents
+  controller_token: "CHANGE_ME_CONTROLLER_TOKEN"  # Token for AI controller
+  
+# TLS/SSL configuration
+tls:
+  enabled: true  # Enable TLS encryption
+  cert_file: "/etc/ai-relay/cert.pem"  # SSL certificate file
+  key_file: "/etc/ai-relay/key.pem"    # SSL private key file
+  ca_file: null  # CA certificate file (optional)
+  verify_mode: "required"  # required, optional, none
+
+# Tor hidden service configuration
+tor:
+  enabled: false  # Enable Tor hidden service
+  hidden_service_dir: "/var/lib/tor/ai-relay"  # Tor hidden service directory
+  hidden_service_port: 8889  # Port for hidden service
+
+# Logging configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "/var/log/ai-relay/relay.log"  # Log file path
+  format: "json"  # json or text
+
+# Connection limits
+limits:
+  max_sessions: 100  # Maximum concurrent sessions
+  max_message_size: 10485760  # 10MB maximum message size
+  idle_timeout: 300  # Idle session timeout in seconds
+
+# Health check server
+health:
+  port: 9090  # Health check HTTP server port
+  path: "/healthz"  # Health check endpoint path

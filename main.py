@@ -14,6 +14,7 @@ License: For authorized security testing only
 
 import sys
 import ipaddress
+import logging
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
@@ -22,6 +23,10 @@ from rich.layout import Layout
 from rich.text import Text
 from rich import box
 import os
+from pathlib import Path
+
+# Configure logging for discovery
+logging.basicConfig(level=logging.WARNING)
 
 # Import modules
 from modules.foothold import FootholdModule
@@ -35,6 +40,7 @@ from modules.madcert_integration import MADCertModule
 from modules.lolbins_reference import LOLBinsModule
 from modules.auto_enumerate import AutoEnumerateModule
 from modules.loghunter_integration import LogHunterModule, MoonwalkModule
+from modules.pe5_system_escalation import PE5SystemEscalationModule
 
 console = Console()
 
@@ -71,7 +77,74 @@ class LateralMovementTUI:
     
     def __init__(self):
         self.console = console
-        self.modules = {
+        self.discovered_components = self._discover_and_preload_components()
+        self.modules = self._initialize_modules()
+        self.session_data = {
+            'LAB_USE': LAB_USE,
+            'AUTO_ENUMERATE': AUTO_ENUMERATE,
+            'AUTO_ENUMERATE_DEPTH': AUTO_ENUMERATE_DEPTH,
+            'is_local_ip': is_local_ip,
+            'discovered_components': self.discovered_components,  # Make available to modules
+        }
+    
+    def _discover_and_preload_components(self) -> dict:
+        """Discover all available components and preload requirements automatically"""
+        try:
+            from modules.discovery import ComponentDiscovery
+            
+            # First discovery pass
+            discovery = ComponentDiscovery(auto_preload=False)
+            
+            # Check for missing optional dependencies
+            deps = discovery.discovered_components.get('optional_dependencies', {})
+            missing = [k for k, v in deps.items() if not v]
+            
+            # Auto-preload missing dependencies silently
+            if missing:
+                self.console.print(f"[dim]Preloading optional dependencies: {', '.join(missing)}...[/dim]", end='')
+                results = discovery.preload_requirements(interactive=False)
+                installed = [k for k, v in results.items() if v]
+                if installed:
+                    self.console.print(f" [green]✓[/green]")
+                    # Re-discover after installation
+                    discovery = ComponentDiscovery(auto_preload=False)
+                else:
+                    self.console.print(f" [yellow]⚠[/yellow]")
+            
+            return discovery.get_summary()
+        except Exception as e:
+            logging.debug(f"Component discovery failed: {e}")
+            # Fallback discovery
+            return self._fallback_discovery()
+    
+    def _fallback_discovery(self) -> dict:
+        """Fallback component discovery if discovery module fails"""
+        components = {
+            'pe5_framework': {'available': Path('pe5_framework_extracted/pe5_framework').exists()},
+            'relay_service': {'available': Path('relay').exists()},
+            'optional_dependencies': {}
+        }
+        
+        # Check optional dependencies
+        dep_map = {
+            'websockets': 'websockets',
+            'aiohttp': 'aiohttp',
+            'yaml': 'yaml',
+            'cryptography': 'cryptography'
+        }
+        
+        for dep_key, dep_module in dep_map.items():
+            try:
+                __import__(dep_module)
+                components['optional_dependencies'][dep_key] = True
+            except ImportError:
+                components['optional_dependencies'][dep_key] = False
+        
+        return components
+    
+    def _initialize_modules(self) -> dict:
+        """Initialize modules with availability checks"""
+        modules = {
             '1': ('Foothold & Starting Point', FootholdModule()),
             '2': ('Local Orientation', OrientationModule()),
             '3': ('Identity Acquisition', IdentityModule()),
@@ -84,12 +157,15 @@ class LateralMovementTUI:
             '10': ('LogHunter Integration', LogHunterModule()),
             '11': ('Windows Moonwalk', MoonwalkModule()),
         }
-        self.session_data = {
-            'LAB_USE': LAB_USE,
-            'AUTO_ENUMERATE': AUTO_ENUMERATE,
-            'AUTO_ENUMERATE_DEPTH': AUTO_ENUMERATE_DEPTH,
-            'is_local_ip': is_local_ip,
-        }
+        
+        # PE5 module (always available, checks framework internally)
+        try:
+            modules['12'] = ('[PRIMARY] PE5 SYSTEM Escalation', PE5SystemEscalationModule())
+        except Exception as e:
+            console.print(f"[yellow]Warning: PE5 module initialization issue: {e}[/yellow]")
+            modules['12'] = ('[PRIMARY] PE5 SYSTEM Escalation (Limited)', None)
+        
+        return modules
         
     def show_banner(self):
         """Display application banner"""
@@ -108,6 +184,15 @@ class LateralMovementTUI:
             if depth_status:
                 status_line += f" ({depth_status})"
         
+        # Component availability status
+        comp_status = []
+        if self.discovered_components.get('pe5_framework', {}).get('available'):
+            comp_status.append("[green]PE5[/green]")
+        if self.discovered_components.get('relay_service', {}).get('available'):
+            comp_status.append("[green]Relay[/green]")
+        if comp_status:
+            status_line += f" | Components: {', '.join(comp_status)}"
+        
         panel = Panel(
             banner,
             box=box.DOUBLE,
@@ -116,7 +201,9 @@ class LateralMovementTUI:
             subtitle=f"[dim]For authorized testing only | {status_line}[/dim]"
         )
         self.console.print(panel)
+        
         self.console.print()
+    
         
     def show_main_menu(self):
         """Display main menu"""
@@ -136,13 +223,15 @@ class LateralMovementTUI:
             '8': 'MADCert certificate generation for AD environments',
             '9': 'LOLBins reference - Living Off The Land Binaries',
             '10': 'LogHunter - Windows event log analysis & hunting',
-            '11': 'Windows Moonwalk - Cover tracks & clear logs'
+            '11': 'Windows Moonwalk - Cover tracks & clear logs',
+            '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation'
         }
         
         for key, (name, _) in self.modules.items():
             table.add_row(f"[bold]{key}[/bold]", name, descriptions[key])
         
         table.add_row("[bold]0[/bold]", "[dim]Exit[/dim]", "[dim]Exit application[/dim]")
+        table.add_row("[bold]?[/bold]", "[dim cyan]Component Discovery[/dim cyan]", "[dim]Show available components & preload[/dim]")
         
         self.console.print(table)
         self.console.print()
@@ -165,9 +254,13 @@ class LateralMovementTUI:
             
             choice = Prompt.ask(
                 "[bold cyan]Select module[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'],
+                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '?'],
                 default='0'
             )
+            
+            if choice == '?':
+                self._show_full_discovery()
+                continue
             
             if choice == '0':
                 if Confirm.ask("\n[bold yellow]Exit application?[/bold yellow]"):
@@ -176,6 +269,14 @@ class LateralMovementTUI:
                 continue
             
             module_name, module_instance = self.modules[choice]
+            
+            # Check if module is available
+            if module_instance is None:
+                self.console.print(f"\n[bold red]Module '{module_name}' is not available[/bold red]")
+                self.console.print("[yellow]This module requires additional components that were not found.[/yellow]\n")
+                if Confirm.ask("[bold]Show component discovery report?[/bold]", default=True):
+                    self._show_full_discovery()
+                continue
             
             self.console.clear()
             self.console.print(f"\n[bold cyan]→ {module_name}[/bold cyan]\n")

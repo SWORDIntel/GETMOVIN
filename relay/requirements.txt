@@ -1,0 +1,17 @@
+# AI Relay Daemon Requirements
+# CNSA 2.0 compliant TLS relay service
+
+# Core dependencies
+websockets>=11.0
+aiohttp>=3.8.0
+pyyaml>=6.0
+
+# TLS and security
+cryptography>=41.0.0  # For CNSA 2.0 certificate generation
+
+# Optional: Tor support
+# stem>=1.8.0  # For Tor control
+# pysocks>=1.7.1  # For SOCKS5 proxy
+
+# Optional: Let's Encrypt
+# certbot>=2.0.0  # For automatic certificate management
