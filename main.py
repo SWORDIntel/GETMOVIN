@@ -25,11 +25,15 @@ from modules.opsec import OPSECModule
 from modules.llm_agent import LLMAgentModule
 from modules.madcert_integration import MADCertModule
 from modules.lolbins_reference import LOLBinsModule
+from modules.auto_enumerate import AutoEnumerateModule
 
 console = Console()
 
 # LAB_USE flag: Set to 1 to limit operations to local IP ranges only
 LAB_USE = 1
+
+# AUTO_ENUMERATE flag: Set to 1 to automatically enumerate all modules and generate report
+AUTO_ENUMERATE = 0  # Set to 1 for automatic enumeration on startup
 
 # Local IP ranges (RFC 1918 + loopback)
 LOCAL_IP_RANGES = [
@@ -67,6 +71,7 @@ class LateralMovementTUI:
         }
         self.session_data = {
             'LAB_USE': LAB_USE,
+            'AUTO_ENUMERATE': AUTO_ENUMERATE,
             'is_local_ip': is_local_ip,
         }
         
@@ -78,13 +83,18 @@ class LateralMovementTUI:
         banner.append("Red Team / Threat Modeling TUI", style="dim white")
         
         lab_status = "[bold yellow]LAB MODE[/bold yellow] - Local IP ranges only" if LAB_USE == 1 else "[bold green]LIVE MODE[/bold green] - Full execution enabled"
+        enum_status = "[bold cyan]AUTO-ENUMERATE[/bold cyan]" if AUTO_ENUMERATE == 1 else ""
+        
+        status_line = f"{lab_status}"
+        if enum_status:
+            status_line += f" | {enum_status}"
         
         panel = Panel(
             banner,
             box=box.DOUBLE,
             border_style="cyan",
             title="[bold red]⚠ RED TEAM TOOL ⚠[/bold red]",
-            subtitle=f"[dim]For authorized testing only | {lab_status}[/dim]"
+            subtitle=f"[dim]For authorized testing only | {status_line}[/dim]"
         )
         self.console.print(panel)
         self.console.print()
@@ -119,6 +129,14 @@ class LateralMovementTUI:
     def run(self):
         """Main application loop"""
         self.show_banner()
+        
+        # Check for AUTO_ENUMERATE mode
+        if AUTO_ENUMERATE == 1:
+            self.console.print("[bold yellow]AUTO-ENUMERATE MODE ENABLED[/bold yellow]\n")
+            auto_module = AutoEnumerateModule()
+            auto_module.run(self.console, self.session_data)
+            if not Confirm.ask("\n[bold]Continue to interactive mode?[/bold]", default=False):
+                return
         
         while True:
             self.show_main_menu()

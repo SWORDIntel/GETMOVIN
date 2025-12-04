@@ -49,7 +49,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## LAB_USE Flag
+## Configuration Flags
+
+### LAB_USE Flag
 
 The `LAB_USE` flag in `main.py` controls operation mode:
 
@@ -62,6 +64,27 @@ To change the mode, edit `LAB_USE` in `main.py`:
 # LAB_USE flag: Set to 1 to limit operations to local IP ranges only
 LAB_USE = 1  # Lab mode
 # LAB_USE = 0  # Live mode
+```
+
+### AUTO_ENUMERATE Flag
+
+The `AUTO_ENUMERATE` flag enables automatic comprehensive enumeration:
+
+- **AUTO_ENUMERATE = 1**: Automatically enumerate all modules on startup and generate comprehensive report
+- **AUTO_ENUMERATE = 0**: Interactive mode (default)
+
+When enabled, the tool will:
+1. Automatically run enumeration across all modules
+2. Collect foothold, orientation, identity, network, and persistence data
+3. Test lateral movement targets
+4. Generate comprehensive reports in multiple formats (TXT, JSON, HTML)
+
+To enable:
+
+```python
+# AUTO_ENUMERATE flag: Set to 1 for automatic enumeration on startup
+AUTO_ENUMERATE = 1  # Auto-enumeration mode
+# AUTO_ENUMERATE = 0  # Interactive mode
 ```
 
 ## Requirements
