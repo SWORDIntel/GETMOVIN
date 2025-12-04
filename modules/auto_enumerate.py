@@ -27,7 +27,7 @@ from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
 from modules.diagram_generator import DiagramGenerator
 from modules.vlan_bypass import VLANBypassModule, DEFAULT_CREDENTIALS, NETWORK_CVES, VLAN_HOP_TECHNIQUES
-from modules.credential_manager import get_credential_manager, CredentialType, CredentialSource
+from modules.credential_manager import get_credential_manager, CredentialType, CredentialSource, Credential
 
 
 class AutoEnumerator:
@@ -294,35 +294,155 @@ class AutoEnumerator:
     def _enumerate_identity(self, progress, task):
         """Enumerate identity and credentials"""
         try:
+            looted_creds = []
+            
             # Credential stores
-            progress.update(task, advance=25, description="[cyan]Credential stores...")
+            progress.update(task, advance=15, description="[cyan]Credential stores...")
             exit_code, stdout, stderr = execute_cmd("cmdkey /list", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['stored_credentials'] = stdout
+                # Parse and save discovered credentials
+                looted_creds.extend(self._parse_cmdkey_credentials(stdout))
             
             # Vault
-            progress.update(task, advance=25, description="[cyan]Windows Vault...")
+            progress.update(task, advance=15, description="[cyan]Windows Vault...")
             exit_code, stdout, stderr = execute_cmd("vaultcmd /list", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['vault_credentials'] = stdout
             
             # Domain context
-            progress.update(task, advance=25, description="[cyan]Domain context...")
+            progress.update(task, advance=15, description="[cyan]Domain context...")
             exit_code, stdout, stderr = execute_cmd("net group \"Domain Admins\" /domain", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['domain_admins'] = stdout
             
             # LSASS process
-            progress.update(task, advance=25, description="[cyan]LSASS process...")
+            progress.update(task, advance=15, description="[cyan]LSASS process...")
             ps_cmd = "Get-Process lsass -ErrorAction SilentlyContinue | Select-Object Id, ProcessName"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['lsass_process'] = stdout
             
+            # Simulate credential harvesting in lab mode
+            progress.update(task, advance=20, description="[cyan]Harvesting credentials...")
+            if self.lab_use == 1:
+                # Simulated credentials found during enumeration
+                simulated_creds = [
+                    {'username': 'svc_backup', 'domain': 'CORP', 'password': 'Backup2024!', 'target': 'FILESERVER01', 'source': 'lsa_secrets'},
+                    {'username': 'svc_sql', 'domain': 'CORP', 'hash': 'aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c', 'target': 'SQL-PROD01', 'source': 'lsass_dump'},
+                    {'username': 'admin', 'domain': '', 'password': 'LocalAdmin123', 'target': 'localhost', 'source': 'sam_dump'},
+                ]
+                
+                for cred in simulated_creds:
+                    if cred.get('password'):
+                        self.cred_manager.add_password(
+                            username=cred['username'],
+                            password=cred['password'],
+                            domain=cred.get('domain', ''),
+                            target=cred.get('target', ''),
+                            source=CredentialSource.LSA_SECRETS.value if cred.get('source') == 'lsa_secrets' else CredentialSource.SAM_DUMP.value
+                        )
+                    elif cred.get('hash'):
+                        self.cred_manager.add_hash(
+                            username=cred['username'],
+                            hash_value=cred['hash'],
+                            domain=cred.get('domain', ''),
+                            target=cred.get('target', ''),
+                            source=CredentialSource.LSASS_DUMP.value
+                        )
+                    looted_creds.append(cred)
+            
+            # Save service account credentials
+            progress.update(task, advance=20, description="[cyan]Service accounts...")
+            ps_cmd = "Get-WmiObject Win32_Service | Where-Object {$_.StartName -like '*@*' -or $_.StartName -like '*\\\\*'} | Select-Object -First 10 Name, StartName"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['identity']['service_accounts'] = stdout
+                # Parse service accounts (usernames only, no passwords)
+                looted_creds.extend(self._parse_service_accounts(stdout))
+            
+            # Track looted credentials
+            self.enumeration_data['identity']['looted_count'] = len(looted_creds)
+            
             progress.update(task, advance=100, description="[green]Identity enumeration complete")
         
         except Exception as e:
             self.enumeration_data['identity']['error'] = str(e)
+    
+    def _parse_cmdkey_credentials(self, output: str) -> list:
+        """Parse cmdkey output and save to credential manager"""
+        credentials = []
+        current_target = None
+        current_user = None
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            if 'Target:' in line:
+                current_target = line.split('Target:')[-1].strip()
+            elif 'User:' in line:
+                current_user = line.split('User:')[-1].strip()
+                
+                if current_user and current_target:
+                    # Parse domain\\user format
+                    domain = ''
+                    username = current_user
+                    if '\\' in current_user:
+                        parts = current_user.split('\\', 1)
+                        domain = parts[0]
+                        username = parts[1]
+                    
+                    # Save to credential manager (noted as stored, password not extracted)
+                    self.cred_manager.add_credential(
+                        Credential(
+                            id='',
+                            cred_type=CredentialType.PASSWORD.value,
+                            source=CredentialSource.CREDENTIAL_MANAGER.value,
+                            username=username,
+                            domain=domain,
+                            target=current_target,
+                            notes='Stored credential discovered via cmdkey (password not extracted)',
+                            tested=False,
+                            valid=True
+                        )
+                    )
+                    credentials.append({'username': username, 'domain': domain, 'target': current_target})
+                    current_target = None
+                    current_user = None
+        
+        return credentials
+    
+    def _parse_service_accounts(self, output: str) -> list:
+        """Parse service accounts and note them"""
+        accounts = []
+        for line in output.split('\n'):
+            if '@' in line or '\\' in line:
+                # Extract username from service account line
+                parts = line.split()
+                for part in parts:
+                    if '@' in part or '\\' in part:
+                        username = part.strip()
+                        domain = ''
+                        if '\\' in username:
+                            domain, username = username.split('\\', 1)
+                        elif '@' in username:
+                            username, domain = username.split('@', 1)
+                        
+                        # Note service account (password unknown)
+                        self.cred_manager.add_credential(
+                            Credential(
+                                id='',
+                                cred_type=CredentialType.SERVICE_ACCOUNT.value,
+                                source=CredentialSource.REGISTRY.value,
+                                username=username,
+                                domain=domain,
+                                notes='Service account discovered during enumeration',
+                                tested=False,
+                                valid=True
+                            )
+                        )
+                        accounts.append({'username': username, 'domain': domain, 'type': 'service_account'})
+                        break
+        return accounts
     
     def _enumerate_network(self, progress, task):
         """Enumerate network information"""
@@ -691,11 +811,65 @@ class AutoEnumerator:
                     # Clean up temp file
                     del_cmd = f'del \\\\{target}\\C$\\Windows\\Temp\\enum_result.txt'
                     execute_cmd(del_cmd, lab_use=self.lab_use)
+            
+            # Loot credentials from remote target (simulation in lab mode)
+            if self.lab_use == 1:
+                remote_creds = self._loot_remote_credentials(target, remote_data)
+                remote_data['looted_credentials'] = len(remote_creds)
         
         except Exception as e:
             remote_data['error'] = str(e)
         
         return remote_data
+    
+    def _loot_remote_credentials(self, target: str, remote_data: Dict[str, Any]) -> list:
+        """Loot credentials from a remote target and save to credential manager"""
+        looted = []
+        
+        # Simulate finding credentials on remote hosts based on role
+        role = remote_data.get('foothold', {}).get('role', '')
+        
+        if role == 'Domain Controller':
+            # DC typically has high-value credentials
+            creds = [
+                {'username': 'krbtgt', 'domain': 'CORP', 'hash': 'aad3b435b51404eeaad3b435b51404ee:dc-krbtgt-hash-here', 'type': 'ntlm'},
+                {'username': 'Administrator', 'domain': 'CORP', 'hash': 'aad3b435b51404eeaad3b435b51404ee:dc-admin-hash-here', 'type': 'ntlm'},
+            ]
+        elif role == 'File Server':
+            creds = [
+                {'username': 'svc_fileaccess', 'domain': 'CORP', 'password': 'FileAccess2024!', 'type': 'password'},
+            ]
+        elif role == 'Web Server':
+            creds = [
+                {'username': 'iis_appool', 'domain': '', 'password': 'IISPool2024', 'type': 'password'},
+                {'username': 'sa', 'domain': '', 'password': 'SQLAdmin123', 'type': 'password', 'notes': 'SQL connection string'},
+            ]
+        else:
+            creds = [
+                {'username': f'localadmin_{target.replace(".", "_")}', 'domain': '', 'password': 'Local123!', 'type': 'password'},
+            ]
+        
+        for cred in creds:
+            if cred.get('type') == 'password':
+                self.cred_manager.add_password(
+                    username=cred['username'],
+                    password=cred['password'],
+                    domain=cred.get('domain', ''),
+                    target=target,
+                    source=CredentialSource.LATERAL_MOVEMENT.value,
+                    notes=cred.get('notes', f'Looted from {target}')
+                )
+            else:
+                self.cred_manager.add_hash(
+                    username=cred['username'],
+                    hash_value=cred['hash'],
+                    domain=cred.get('domain', ''),
+                    target=target,
+                    source=CredentialSource.LATERAL_MOVEMENT.value
+                )
+            looted.append(cred)
+        
+        return looted
     
     def _generate_remote_machine_reports(self, target: str, remote_data: Dict[str, Any], progress, task):
         """Generate reports and diagrams for a remote machine"""
@@ -895,28 +1069,46 @@ class AutoEnumerator:
         """Enumerate persistence mechanisms"""
         try:
             # Scheduled tasks
-            progress.update(task, advance=25, description="[cyan]Scheduled tasks...")
+            progress.update(task, advance=20, description="[cyan]Scheduled tasks...")
             ps_cmd = "Get-ScheduledTask | Get-ScheduledTaskInfo | Where-Object {$_.LastRunTime -gt (Get-Date).AddDays(-30)} | Select-Object TaskName, State, LastRunTime"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['recent_tasks'] = stdout
             
+            # Scheduled task credentials (tasks running as specific users)
+            progress.update(task, advance=10, description="[cyan]Task credentials...")
+            ps_cmd = "Get-ScheduledTask | ForEach-Object { $task = $_; Get-ScheduledTaskInfo -TaskPath $task.TaskPath -TaskName $task.TaskName | Select-Object TaskName, @{N='RunAs';E={$task.Principal.UserId}} } | Where-Object { $_.RunAs -and $_.RunAs -notmatch 'SYSTEM|LOCAL SERVICE|NETWORK SERVICE' } | Select-Object -First 10"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['persistence']['task_credentials'] = stdout
+                # Parse and save task accounts (username only, potential targets)
+                self._parse_task_accounts(stdout)
+            
             # Services
-            progress.update(task, advance=25, description="[cyan]Services...")
+            progress.update(task, advance=20, description="[cyan]Services...")
             ps_cmd = "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 30 Name, DisplayName, Status"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['services'] = stdout
             
+            # Service account credentials (services running as domain accounts)
+            progress.update(task, advance=10, description="[cyan]Service account creds...")
+            ps_cmd = "Get-WmiObject Win32_Service | Where-Object { $_.StartName -and $_.StartName -notmatch 'LocalSystem|NT AUTHORITY|LocalService|NetworkService' } | Select-Object -First 15 Name, StartName, State"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['persistence']['service_credentials'] = stdout
+                # Parse and save service accounts
+                self._parse_service_credentials(stdout)
+            
             # WMI event subscriptions
-            progress.update(task, advance=25, description="[cyan]WMI event subscriptions...")
+            progress.update(task, advance=20, description="[cyan]WMI event subscriptions...")
             ps_cmd = "Get-WmiObject -Namespace root\\subscription -Class __EventFilter | Select-Object Name, Query"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['wmi_subscriptions'] = stdout
             
             # Registry run keys
-            progress.update(task, advance=25, description="[cyan]Registry run keys...")
+            progress.update(task, advance=20, description="[cyan]Registry run keys...")
             exit_code, stdout, stderr = execute_cmd("reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['registry_run_hkcu'] = stdout
@@ -929,6 +1121,50 @@ class AutoEnumerator:
         
         except Exception as e:
             self.enumeration_data['persistence']['error'] = str(e)
+    
+    def _parse_task_accounts(self, output: str):
+        """Parse scheduled task run-as accounts"""
+        for line in output.split('\n'):
+            if '\\' in line or '@' in line:
+                parts = line.split()
+                for part in parts:
+                    if '\\' in part:
+                        domain, username = part.split('\\', 1)
+                        self.cred_manager.add_credential(
+                            Credential(
+                                id='',
+                                cred_type=CredentialType.SERVICE_ACCOUNT.value,
+                                source=CredentialSource.REGISTRY.value,
+                                username=username.strip(),
+                                domain=domain.strip(),
+                                notes='Scheduled task run-as account',
+                                tested=False,
+                                valid=True
+                            )
+                        )
+                        break
+    
+    def _parse_service_credentials(self, output: str):
+        """Parse service account credentials"""
+        for line in output.split('\n'):
+            if '\\' in line or '@' in line:
+                parts = line.split()
+                for part in parts:
+                    if '\\' in part:
+                        domain, username = part.split('\\', 1)
+                        self.cred_manager.add_credential(
+                            Credential(
+                                id='',
+                                cred_type=CredentialType.SERVICE_ACCOUNT.value,
+                                source=CredentialSource.REGISTRY.value,
+                                username=username.strip(),
+                                domain=domain.strip(),
+                                notes='Windows service account',
+                                tested=False,
+                                valid=True
+                            )
+                        )
+                        break
     
     def _enumerate_certificates(self, progress, task):
         """Enumerate certificates (if MADCert available)"""
