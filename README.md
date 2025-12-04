@@ -13,7 +13,8 @@ A comprehensive Terminal User Interface (TUI) tool for simulating and modeling W
 - **Self-Contained**: No online dependencies - all functionality is local
 - **APT-41 TTP Alignment**: Techniques aligned with known APT-41 methodologies
 - **MITRE ATT&CK Integration**: Comprehensive TTP coverage
-- **Modular Architecture**: 11 integrated modules covering all phases of lateral movement
+- **Modular Architecture**: 12 integrated modules covering all phases of lateral movement
+- **PE5 SYSTEM Escalation**: PRIMARY privilege escalation method using kernel-level token manipulation (APT-41 PE5 framework)
 - **Auto-Enumeration Mode**: Automated comprehensive enumeration with lateral movement
 - **LogHunter Integration**: Windows event log analysis and hunting
 - **Windows Moonwalk**: Advanced log clearing with fake entry injection
@@ -184,6 +185,17 @@ AUTO_ENUMERATE_DEPTH = 3  # Maximum lateral movement depth
 - Windows artifact cleanup
 - Application compatibility cache clearing
 
+### 12. PE5 SYSTEM Escalation [PRIMARY PE METHOD]
+- Kernel-level privilege escalation using APT-41 PE5 framework
+- Direct _EPROCESS.Token manipulation via SYSCALL
+- Multiple exploitation techniques (token stealing, direct modification, integrity elevation)
+- Windows version-specific kernel offsets
+- Print Spooler exploit (CVE-2020-1337)
+- UAC bypass techniques (CVE-2019-1388)
+- SMBv3 local PE (CVE-2020-0796)
+- Privilege verification and reporting
+- Enhanced with techniques from post-hub repository
+
 ## Auto-Enumeration Mode
 
 Enable automatic comprehensive enumeration:
@@ -251,7 +263,10 @@ These tools are optional and the TUI will function without them.
 ├── docs/                        # Documentation
 │   ├── Auto_Enumeration.md
 │   ├── LOLBins_Reference.md
-│   └── MADCert_Integration.md
+│   ├── MADCert_Integration.md
+│   └── PE5_Integration.md       # PE5 SYSTEM escalation integration
+├── pe5_framework_extracted/     # PE5 framework source code
+│   └── pe5_framework/           # APT-41 PE5 exploit framework
 └── examples/                    # Example scripts
     └── llm_agent_example.py
 ```
@@ -276,7 +291,7 @@ python main.py
 ### Module Selection
 
 1. Launch the tool
-2. Select a module from the main menu (1-11)
+2. Select a module from the main menu (1-12)
 3. Choose specific functions within the module
 4. Review results and execute commands
 
@@ -377,6 +392,7 @@ This tool is provided for educational and authorized security testing purposes o
 - [LogHunter](https://github.com/CICADA8-Research/LogHunter)
 - [MADCert](https://github.com/NationalSecurityAgency/MADCert)
 - [Awesome LOLBins](https://github.com/sheimo/awesome-lolbins-and-beyond)
+- [post-hub](https://github.com/ybdt/post-hub) - Post-exploitation techniques repository
 
 ## Version
 

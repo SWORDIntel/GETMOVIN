@@ -35,6 +35,7 @@ from modules.madcert_integration import MADCertModule
 from modules.lolbins_reference import LOLBinsModule
 from modules.auto_enumerate import AutoEnumerateModule
 from modules.loghunter_integration import LogHunterModule, MoonwalkModule
+from modules.pe5_system_escalation import PE5SystemEscalationModule
 
 console = Console()
 
@@ -83,6 +84,7 @@ class LateralMovementTUI:
             '9': ('LOLBins Reference', LOLBinsModule()),
             '10': ('LogHunter Integration', LogHunterModule()),
             '11': ('Windows Moonwalk', MoonwalkModule()),
+            '12': ('[PRIMARY] PE5 SYSTEM Escalation', PE5SystemEscalationModule()),
         }
         self.session_data = {
             'LAB_USE': LAB_USE,
@@ -136,7 +138,8 @@ class LateralMovementTUI:
             '8': 'MADCert certificate generation for AD environments',
             '9': 'LOLBins reference - Living Off The Land Binaries',
             '10': 'LogHunter - Windows event log analysis & hunting',
-            '11': 'Windows Moonwalk - Cover tracks & clear logs'
+            '11': 'Windows Moonwalk - Cover tracks & clear logs',
+            '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation'
         }
         
         for key, (name, _) in self.modules.items():
@@ -165,7 +168,7 @@ class LateralMovementTUI:
             
             choice = Prompt.ask(
                 "[bold cyan]Select module[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'],
+                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
                 default='0'
             )
             
