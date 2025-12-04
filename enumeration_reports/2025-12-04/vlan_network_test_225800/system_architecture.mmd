@@ -1,0 +1,9 @@
+graph TB
+    HOST[Host: IT Admin Workstation<br/>User: CORP\admin.jones]
+    HOST --> NET[Network Interfaces<br/>10.10.30.102]
+    HOST --> SVC[Services<br/>Ports: 135, 139, 445, 5985]
+    HOST --> CREDS[Stored Credentials<br/>T1555, T1556]
+    HOST --> PERSIST[Persistence<br/>T1053, T1543]
+    style HOST fill:#95e1d3
+    style NET fill:#4ecdc4
+    style SVC fill:#ffe66d

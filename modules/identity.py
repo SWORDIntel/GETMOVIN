@@ -7,6 +7,9 @@ from rich import box
 from rich.console import Console
 from modules.loghunter_integration import WindowsMoonwalk
 from modules.utils import select_menu_option, execute_cmd, execute_powershell
+from modules.credential_manager import (
+    get_credential_manager, CredentialType, CredentialSource
+)
 
 
 class IdentityModule:
@@ -14,6 +17,92 @@ class IdentityModule:
     
     def __init__(self):
         self.moonwalk = None
+        self.cred_manager = get_credential_manager()
+    
+    def _save_harvested_credential(self, console: Console, username: str, 
+                                   password: str = "", hash_value: str = "",
+                                   domain: str = "", target: str = "",
+                                   source: str = "", cred_type: str = ""):
+        """Save a harvested credential to persistent storage"""
+        try:
+            if password:
+                cred_id = self.cred_manager.add_password(
+                    username=username,
+                    password=password,
+                    domain=domain,
+                    target=target,
+                    source=source or CredentialSource.CREDENTIAL_MANAGER.value
+                )
+            elif hash_value:
+                cred_id = self.cred_manager.add_hash(
+                    username=username,
+                    hash_value=hash_value,
+                    domain=domain,
+                    target=target,
+                    source=source or CredentialSource.LSASS_DUMP.value
+                )
+            else:
+                return None
+            
+            console.print(f"[green]✓ Credential saved: {domain}\\{username if domain else username}[/green]")
+            return cred_id
+        except Exception as e:
+            console.print(f"[yellow]Could not save credential: {e}[/yellow]")
+            return None
+    
+    def _parse_and_save_cmdkey_output(self, console: Console, output: str):
+        """Parse cmdkey output and save credentials"""
+        import re
+        saved = 0
+        
+        # Parse cmdkey output format
+        # Target: Domain:target=server
+        # User: DOMAIN\username
+        current_target = None
+        current_user = None
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            if line.startswith('Target:'):
+                current_target = line.replace('Target:', '').strip()
+            elif line.startswith('User:'):
+                current_user = line.replace('User:', '').strip()
+                
+                if current_user and current_target:
+                    # Parse domain\user format
+                    if '\\' in current_user:
+                        domain, username = current_user.split('\\', 1)
+                    else:
+                        domain, username = '', current_user
+                    
+                    # Save as placeholder (password not available, just noting the stored cred)
+                    self.cred_manager.add_credential(
+                        self.cred_manager.credentials.get(f"stored_{username}_{current_target}") or 
+                        type('Credential', (), {
+                            'id': f"stored_{username}_{current_target}",
+                            'cred_type': CredentialType.PASSWORD.value,
+                            'source': CredentialSource.CREDENTIAL_MANAGER.value,
+                            'username': username,
+                            'domain': domain,
+                            'target': current_target,
+                            'notes': 'Stored credential discovered via cmdkey',
+                        })()
+                    ) if hasattr(self.cred_manager, 'add_credential') else None
+                    saved += 1
+                    current_target = None
+                    current_user = None
+        
+        if saved:
+            console.print(f"[green]✓ Discovered {saved} stored credentials[/green]")
+    
+    def _show_credential_summary(self, console: Console):
+        """Show summary of stored credentials"""
+        summary = self.cred_manager.get_summary()
+        if summary['total'] > 0:
+            console.print(f"\n[bold cyan]Credential Store:[/bold cyan] {summary['total']} credentials saved to ./loot/credentials/")
+            if summary['by_type']:
+                types_str = ", ".join(f"{t}: {c}" for t, c in list(summary['by_type'].items())[:5])
+                console.print(f"[dim]Types: {types_str}[/dim]")
     
     def run(self, console: Console, session_data: dict):
         if not self.moonwalk:

