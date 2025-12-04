@@ -1,292 +1,413 @@
-# Auto-Enumeration Enhancements
+# Auto Enumeration Enhancements
 
 ## Overview
 
-The auto-enumeration module has been significantly enhanced to leverage all available tooling when the enumeration switch is triggered (`AUTO_ENUMERATE=1`).
+The auto enumeration module has been enhanced with diagram generation capabilities and organized report storage.
 
-## New Enumeration Sections
+## Diagram Generation
 
-### 1. PE5 Privilege Escalation Enumeration
+### Available Diagrams
 
-**New Section**: `privilege_escalation`
+The auto enumeration module automatically generates six types of Mermaid diagrams:
 
-**Checks Performed:**
-- Current privilege status (SYSTEM, Admin, Elevated)
-- Windows version detection for PE5 compatibility
-- PE5 framework availability check
-- PE5 framework compilation status
-- Windows kernel token offsets detection
-- Print Spooler service status (CVE-2020-1337)
-- UAC status (CVE-2019-1388)
-- SMBv3 configuration (CVE-2020-0796)
+#### 1. MITRE ATT&CK Attack Flow (`mitre_attack_flow.mmd`)
+
+Visual representation of the attack progression through MITRE ATT&CK phases:
+- Initial Access → Foothold Establishment
+- Discovery → Network Discovery → Target Identification
+- Credential Access → Lateral Movement
+- Privilege Escalation → Persistence
+- Command & Control → Defense Evasion
+- Collection → Exfiltration
+
+**Features:**
+- Color-coded phases
+- Technique IDs (T-numbers) mapped to each phase
+- Shows escalation success/failure
+- Displays lateral movement paths
+- Indicates PE5 availability and usage
+
+#### 2. Network Topology (`network_topology.mmd`)
+
+Network diagram showing:
+- Initial host and its role
+- Domain controllers
+- Discovered lateral movement targets
+- ARP-discovered hosts
+- Lateral movement paths with methods (SMB/WinRM/WMI)
+- Connection relationships
+
+**Features:**
+- Visual network layout
+- Color-coded host types
+- Method labels on connections
+- Shows accessible vs discovered hosts
+
+#### 3. Lateral Movement Paths (`lateral_movement.mmd`)
+
+Detailed visualization of lateral movement sequences:
+- Complete paths from initial host to targets
+- Depth information for each path
+- Methods used (wmic, smb, winrm, etc.)
+- Maximum depth reached
+
+**Features:**
+- Flow diagram showing movement progression
+- Depth indicators
+- Method labels
+- Path visualization
+
+#### 4. Privilege Escalation Flow (`privilege_escalation.mmd`)
+
+Privilege escalation techniques and opportunities:
+- Current privilege level (SYSTEM/Admin/User)
+- PE5 framework availability
+- Windows version compatibility
 - Token manipulation opportunities
-- SeDebugPrivilege availability
+- Other PE techniques (Print Spooler, UAC, etc.)
+- Escalation results
 
-**Data Collected:**
-```json
-{
-  "privilege_escalation": {
-    "current_privileges": {
-      "IsSystem": false,
-      "IsAdmin": true,
-      "HasElevatedPrivileges": true,
-      "UserSID": "S-1-5-21-...",
-      "UserName": "DOMAIN\\user"
-    },
-    "pe5_available": true,
-    "pe5_framework_status": {
-      "path": "pe5_framework_extracted/pe5_framework",
-      "exists": true,
-      "compiled": true,
-      "binaries": ["pe5_exploit.dll", "pe5_exploit.exe"]
-    },
-    "windows_version": {
-      "info": "Microsoft Windows 10 Enterprise",
-      "pe5_compatible": true,
-      "token_offset": "0x4B8"
-    },
-    "pe_techniques": {
-      "print_spooler": {...},
-      "uac": {...},
-      "smbv3": {...},
-      "token_manipulation": {...}
-    },
-    "escalation_attempted": false,
-    "escalation_successful": false
-  }
-}
+**Features:**
+- Current state visualization
+- PE5 compatibility check
+- Technique availability
+- Escalation success/failure
+
+#### 5. System Architecture (`system_architecture.mmd`)
+
+Host-level architecture diagram:
+- Host role and identity
+- Network interfaces
+- Listening services and ports
+- Network shares
+- Domain context
+- Stored credentials
+- Persistence mechanisms
+- Tooling integration (PE5, Relay, etc.)
+
+**Features:**
+- Complete system overview
+- Service and port information
+- Integration status
+- Credential sources
+
+#### 6. Attack Timeline (`attack_timeline.mmd`)
+
+Gantt chart showing attack phases:
+- Initial Access
+- Discovery
+- Credential Access
+- Lateral Movement
+- Privilege Escalation
+- Persistence
+- Defense Evasion
+
+**Features:**
+- Timeline visualization
+- Phase completion status
+- Critical path identification
+- Duration tracking
+
+### Viewing Diagrams
+
+Diagrams are saved in Mermaid format (`.mmd` files) and can be viewed using:
+
+1. **Mermaid Live Editor**: https://mermaid.live
+   - Copy diagram content
+   - Paste into editor
+   - View rendered diagram
+
+2. **VS Code**:
+   - Install "Markdown Preview Mermaid Support" extension
+   - Open `.mmd` file
+   - Use preview feature
+
+3. **GitHub**:
+   - Diagrams render automatically in markdown files
+   - Include in README.md or documentation
+
+4. **Command Line**:
+   ```bash
+   # Install mermaid-cli
+   npm install -g @mermaid-js/mermaid-cli
+   
+   # Generate PNG
+   mmdc -i diagram.mmd -o diagram.png
+   
+   # Generate SVG
+   mmdc -i diagram.mmd -o diagram.svg
+   ```
+
+## Report Storage Structure
+
+### Directory Organization
+
+All enumeration reports are automatically stored in `enumeration_reports/` with the following structure:
+
+```
+enumeration_reports/
+├── 2024-01-15/
+│   ├── WORKSTATION01_20240115_143022/
+│   │   ├── enumeration_report_20240115_143022.txt
+│   │   ├── enumeration_report_20240115_143022.json
+│   │   ├── enumeration_report_20240115_143022.html
+│   │   ├── mitre_attack_flow.mmd
+│   │   ├── network_topology.mmd
+│   │   ├── lateral_movement.mmd
+│   │   ├── privilege_escalation.mmd
+│   │   ├── system_architecture.mmd
+│   │   ├── attack_timeline.mmd
+│   │   ├── README.md
+│   │   └── remote_targets/
+│   │       ├── 192_168_1_100_depth1_143530/
+│   │       │   ├── enumeration_report_192_168_1_100.txt
+│   │       │   ├── enumeration_report_192_168_1_100.json
+│   │       │   ├── enumeration_report_192_168_1_100.html
+│   │       │   ├── mitre_attack_flow.mmd
+│   │       │   ├── network_topology.mmd
+│   │       │   ├── lateral_movement.mmd
+│   │       │   ├── privilege_escalation.mmd
+│   │       │   ├── system_architecture.mmd
+│   │       │   ├── attack_timeline.mmd
+│   │       │   └── README.md
+│   │       └── SERVER02_depth2_143545/
+│   │           └── ...
+│   └── DC01_20240115_150530/
+│       └── ...
+├── 2024-01-16/
+│   └── ...
 ```
 
-### 2. Relay Connectivity Enumeration
+### Naming Convention
 
-**New Section**: `relay_connectivity`
+- **Date Folder**: `YYYY-MM-DD` format (e.g., `2024-01-15`)
+- **Session Folder**: `{machine-name}_{YYYYMMDD}_{HHMMSS}` format
+  - Machine name from `hostname` command
+  - Timestamp ensures uniqueness for multiple runs
 
-**Checks Performed:**
-- Relay client configuration detection
-- Configuration file location and parsing
-- Relay endpoint configuration (host, port, TLS, Tor)
-- Tor availability check
-- Tor service status
-- SOCKS5 proxy accessibility
-- Transport method detection (Direct, Tor, .onion)
+### Report Files
 
-**Data Collected:**
-```json
-{
-  "relay_connectivity": {
-    "relay_configured": true,
-    "config_path": "~/.config/ai-relay/client.yaml",
-    "config": {
-      "relay_host": "relay.example.com",
-      "relay_port": 8889,
-      "use_tls": true,
-      "use_tor": false
-    },
-    "connectivity_tests": {
-      "host": "relay.example.com",
-      "port": 8889,
-      "tls_enabled": true,
-      "tor_enabled": false,
-      "transport": "Direct"
-    },
-    "tor_available": false,
-    "tor_status": {
-      "tor_installed": false,
-      "tor_running": false,
-      "socks5_proxy": null,
-      "proxy_accessible": false
-    }
-  }
-}
-```
+Each enumeration session generates:
 
-### 3. Tooling Integration Enumeration
+1. **Text Report** (`enumeration_report_TIMESTAMP.txt`)
+   - Human-readable text format
+   - Comprehensive enumeration summary
+   - All discovered information
 
-**New Section**: `tooling_integration`
+2. **JSON Report** (`enumeration_report_TIMESTAMP.json`)
+   - Machine-readable format
+   - Complete enumeration data structure
+   - Suitable for automated processing
 
-**Checks Performed:**
-- Module availability check (PE5, Relay Client, LogHunter, MADCert, LOLBins, Moonwalk)
-- PE5 utilities availability
-- Relay client availability and configuration
-- Tools used during enumeration tracking
-- Integration summary generation
+3. **HTML Report** (`enumeration_report_TIMESTAMP.html`)
+   - Formatted HTML with styling
+   - Tables and organized sections
+   - Suitable for sharing and presentation
 
-**Data Collected:**
-```json
-{
-  "tooling_integration": {
-    "modules_available": {
-      "PE5": true,
-      "Relay Client": true,
-      "LogHunter": true,
-      "MADCert": true,
-      "LOLBins": true,
-      "Moonwalk": true
-    },
-    "integration_status": {
-      "pe5_utils": {
-        "available": true,
-        "techniques": ["Direct Privilege Modification", "Token Stealing", ...]
-      },
-      "relay_client": {
-        "available": true,
-        "config_loaded": true,
-        "relay_host": "relay.example.com"
-      }
-    },
-    "tools_used": {
-      "lolbins": ["wmic", "schtasks", "net view", ...],
-      "powershell_commands": 45,
-      "cmd_commands": 32,
-      "wmi_commands": 12
-    },
-    "integration_summary": {
-      "total_modules": 6,
-      "available_modules": 6,
-      "pe5_ready": true,
-      "relay_ready": true,
-      "loghunter_ready": true,
-      "moonwalk_ready": true
-    }
-  }
-}
-```
+4. **Diagram Files** (`.mmd` files)
+   - All six diagram types
+   - Mermaid format for rendering
 
-## Enhanced Foothold Enumeration
+5. **Index File** (`README.md`)
+   - Overview of the enumeration session
+   - Links to all reports and diagrams
+   - Viewing instructions
+   - List of remote machines enumerated (if any)
 
-**Added:**
-- SYSTEM privilege check
-- Detailed privilege status (IsSystem, IsAdmin, HasElevatedPrivileges)
-- User SID extraction
+### Remote Machine Reports
 
-## Enhanced Report Generation
+**NEW**: When auto enumeration discovers and enumerates remote machines during lateral movement, each remote machine automatically gets its own complete set of reports and diagrams!
 
-**New Report Sections:**
-1. **PRIVILEGE ESCALATION (PE5)** - Complete PE5 status and opportunities
-2. **RELAY CONNECTIVITY** - Relay configuration and connectivity status
-3. **TOOLING INTEGRATION** - All available modules and tools
-4. **ENUMERATION SUMMARY** - High-level summary with key metrics
+Each remote machine enumeration includes:
+- **Complete Reports**: Text, JSON, and HTML formats
+- **All 6 Diagrams**: MITRE attack flow, network topology, lateral movement, privilege escalation, system architecture, and attack timeline
+- **Separate Directory**: Organized under `remote_targets/` subdirectory
+- **Naming Convention**: `{target_name}_depth{depth}_{timestamp}/`
+- **Index File**: Each remote machine has its own README.md
 
-**Report Formats:**
-- Text report (enhanced with new sections)
-- JSON report (includes all new data)
-- HTML report (enhanced with new sections)
+**Benefits:**
+- ✅ Individual analysis of each discovered machine
+- ✅ Complete context for lateral movement paths
+- ✅ Easy comparison between machines
+- ✅ Depth tracking for multi-hop lateral movement
+- ✅ All data preserved for each target
+
+### Benefits
+
+This organization provides:
+
+- **Chronological Organization**: Easy to find reports by date
+- **Machine Separation**: Multiple machines' reports don't conflict
+- **Session Tracking**: Multiple runs per day are preserved
+- **Complete Context**: All related files in one directory
+- **Easy Sharing**: Single directory contains everything
+- **Historical Analysis**: Compare results over time
 
 ## Usage
 
-### Automatic Enumeration
-
-When `AUTO_ENUMERATE=1` is set in `main.py` or via environment variable:
+### Running Auto Enumeration
 
 ```bash
+# Set environment variable for auto-enumeration
 export AUTO_ENUMERATE=1
 export AUTO_ENUMERATE_DEPTH=3
+
+# Run main application
 python main.py
 ```
 
-The enumeration will automatically:
-1. Check all foothold information (enhanced with SYSTEM check)
-2. Enumerate orientation
-3. Enumerate identity and credentials
-4. Discover network targets
-5. Perform lateral movement (up to specified depth)
-6. **NEW**: Enumerate PE5 privilege escalation opportunities
-7. **NEW**: Check relay connectivity configuration
-8. Enumerate persistence mechanisms
-9. Enumerate certificates (MADCert)
-10. **NEW**: Check tooling integration status
-11. Run LogHunter analysis
-12. Perform Moonwalk cleanup
+Or edit `main.py`:
 
-### Manual Enumeration
-
-Access via main menu:
-1. Select option for auto-enumeration module
-2. Choose depth (if overriding default)
-3. Review comprehensive report
-4. Export in desired format
-
-## Integration Points
-
-### PE5 Integration
-
-- Checks PE5 framework availability
-- Detects Windows version compatibility
-- Identifies kernel token offsets
-- Enumerates PE techniques
-- Tracks escalation status
-
-### Relay Integration
-
-- Detects relay configuration
-- Checks connectivity options
-- Verifies Tor availability
-- Tests transport methods
-
-### Module Integration
-
-- Checks all module availability
-- Tracks tool usage
-- Generates integration summary
-- Reports readiness status
-
-## Report Enhancements
-
-### Text Report
-
-New sections added:
-- PRIVILEGE ESCALATION (PE5)
-- RELAY CONNECTIVITY
-- TOOLING INTEGRATION
-- LOGHUNTER ANALYSIS (enhanced)
-- MOONWALK CLEANUP (enhanced)
-- ENUMERATION SUMMARY
-
-### JSON Report
-
-All new enumeration data included:
-- `privilege_escalation` object
-- `relay_connectivity` object
-- `tooling_integration` object
-- Enhanced existing sections
-
-### HTML Report
-
-New HTML sections:
-- Privilege Escalation (PE5) section
-- Relay Connectivity section
-- Tooling Integration section
-- Enhanced styling and formatting
-
-## Benefits
-
-1. **Comprehensive Coverage**: All tooling is checked and reported
-2. **PE5 Readiness**: Immediate visibility into PE5 escalation opportunities
-3. **Relay Status**: Clear relay connectivity status
-4. **Tool Tracking**: Complete visibility into tools used
-5. **Integration Status**: Know what's available and ready
-6. **Enhanced Reporting**: More detailed and actionable reports
-
-## Example Output
-
-When enumeration completes, you'll see:
-
-```
-ENUMERATION SUMMARY
---------------------------------------------------------------------------------
-Total Lateral Targets: 5
-Lateral Paths Explored: 3
-PE5 Available: True
-Relay Configured: True
-Tools Used: 47
+```python
+AUTO_ENUMERATE = 1
+AUTO_ENUMERATE_DEPTH = 3
 ```
 
-## Configuration
+### Export Options
 
-No additional configuration needed. The enhancements automatically:
-- Detect available modules
-- Check configurations
-- Enumerate opportunities
-- Generate comprehensive reports
+When enumeration completes, you'll be prompted for export format:
+- `text`: Text report only
+- `json`: JSON report only
+- `html`: HTML report only
+- `all`: All formats + diagrams
+- `none`: No export
 
-All enhancements are backward compatible and work with existing enumeration workflows.
+### Accessing Reports
+
+Reports are automatically saved to:
+```
+enumeration_reports/{date}/{machine}_{timestamp}/
+```
+
+Navigate to the directory and:
+1. Read `README.md` for overview
+2. Open HTML report in browser
+3. View diagrams using Mermaid Live Editor
+4. Process JSON report programmatically
+
+## Integration
+
+### Programmatic Access
+
+```python
+from pathlib import Path
+import json
+
+# Find latest report
+report_dir = Path('enumeration_reports')
+latest_date = max(report_dir.iterdir(), key=lambda p: p.name)
+latest_session = max(latest_date.iterdir(), key=lambda p: p.name)
+
+# Load JSON report
+with open(latest_session / 'enumeration_report_*.json') as f:
+    data = json.load(f)
+
+# Access enumeration data
+foothold = data['foothold']
+network = data['network']
+lateral_paths = data['lateral_paths']
+```
+
+### Custom Processing
+
+The JSON format allows for:
+- Automated analysis
+- Integration with SIEM systems
+- Custom reporting
+- Data correlation
+- Trend analysis
+
+## Examples
+
+### Example Report Structure
+
+```
+enumeration_reports/
+└── 2024-01-15/
+    └── WORKSTATION01_20240115_143022/
+        ├── README.md                    # Overview and index
+        ├── enumeration_report_20240115_143022.txt
+        ├── enumeration_report_20240115_143022.json
+        ├── enumeration_report_20240115_143022.html
+        ├── mitre_attack_flow.mmd        # MITRE ATT&CK flow
+        ├── network_topology.mmd          # Network diagram
+        ├── lateral_movement.mmd         # Lateral paths
+        ├── privilege_escalation.mmd     # PE flow
+        ├── system_architecture.mmd      # System overview
+        ├── attack_timeline.mmd          # Timeline
+        └── remote_targets/              # Remote machines enumerated
+            ├── 192_168_1_100_depth1_143530/
+            │   ├── README.md            # Remote machine index
+            │   ├── enumeration_report_192_168_1_100.txt
+            │   ├── enumeration_report_192_168_1_100.json
+            │   ├── enumeration_report_192_168_1_100.html
+            │   ├── mitre_attack_flow.mmd
+            │   ├── network_topology.mmd
+            │   ├── lateral_movement.mmd
+            │   ├── privilege_escalation.mmd
+            │   ├── system_architecture.mmd
+            │   └── attack_timeline.mmd
+            └── SERVER02_depth2_143545/
+                └── ...                   # Another remote machine
+```
+
+### Example README.md Content
+
+```markdown
+# Enumeration Report Index
+
+**Generated:** 2024-01-15T14:30:22
+**Machine:** WORKSTATION01
+**Date:** 2024-01-15
+
+## Reports
+- Text Report: `enumeration_report_20240115_143022.txt`
+- JSON Report: `enumeration_report_20240115_143022.json`
+- HTML Report: `enumeration_report_20240115_143022.html`
+
+## Diagrams
+All diagrams are in Mermaid format (.mmd). View them using:
+- [Mermaid Live Editor](https://mermaid.live)
+- VS Code with Mermaid extension
+- GitHub (renders automatically)
+
+- **Mitre Attack Flow**: `mitre_attack_flow.mmd`
+- **Network Topology**: `network_topology.mmd`
+- **Lateral Movement**: `lateral_movement.mmd`
+- **Privilege Escalation**: `privilege_escalation.mmd`
+- **System Architecture**: `system_architecture.mmd`
+- **Attack Timeline**: `attack_timeline.mmd`
+```
+
+## Best Practices
+
+1. **Regular Cleanup**: Archive old reports periodically
+2. **Naming**: Use descriptive machine names for easy identification
+3. **Backup**: Include `enumeration_reports/` in backups
+4. **Sharing**: Share entire session directories for complete context
+5. **Analysis**: Use JSON format for automated analysis
+6. **Documentation**: Review diagrams for visual understanding
+7. **Remote Machines**: Check `remote_targets/` subdirectory for discovered machines
+8. **Depth Tracking**: Use depth indicators to understand lateral movement paths
+9. **Comparison**: Compare remote machine reports to identify patterns
+10. **Complete Context**: Each remote machine has full enumeration data for independent analysis
+
+## Troubleshooting
+
+### Diagrams Not Rendering
+
+- Ensure Mermaid syntax is valid
+- Check diagram file encoding (UTF-8)
+- Verify diagram viewer supports Mermaid
+
+### Reports Not Saving
+
+- Check write permissions in `enumeration_reports/`
+- Verify disk space available
+- Check for path length limitations (Windows)
+
+### Missing Diagrams
+
+- Ensure enumeration completed successfully
+- Check for errors in console output
+- Verify diagram generator module is available
