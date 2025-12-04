@@ -1,10 +1,19 @@
-"""Auto-Enumeration Module - Comprehensive Automated Enumeration"""
+"""Auto-Enumeration Module - Comprehensive Automated Enumeration
+
+Enhanced with all available tooling:
+- PE5 SYSTEM escalation integration
+- Relay client connectivity checks
+- Enhanced privilege escalation enumeration
+- Comprehensive module integration
+"""
 
 import json
 import time
 import re
+import asyncio
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
@@ -13,6 +22,8 @@ from rich.prompt import Prompt, Confirm
 from rich import box
 from modules.utils import execute_cmd, execute_powershell, validate_target
 from modules.loghunter_integration import LogHunter, WindowsMoonwalk
+from modules.pe5_utils import PE5Utils
+from modules.pe5_system_escalation import PE5SystemEscalationModule
 
 
 class AutoEnumerator:
@@ -32,7 +43,11 @@ class AutoEnumerator:
             'persistence': {},
             'certificates': {},
             'lolbins_used': [],
-            'lateral_paths': []  # Track lateral movement paths
+            'lateral_paths': [],  # Track lateral movement paths
+            'privilege_escalation': {},  # PE5 and other PE methods
+            'relay_connectivity': {},  # Relay client checks
+            'pe5_status': {},  # PE5 framework status
+            'tooling_integration': {}  # All tooling usage
         }
         self.lab_use = session_data.get('LAB_USE', 0)
         self.max_depth = session_data.get('AUTO_ENUMERATE_DEPTH', 3)  # Maximum lateral movement depth (configurable)
@@ -41,6 +56,9 @@ class AutoEnumerator:
         self.loghunter = None
         self.moonwalk = WindowsMoonwalk(console, session_data)
         self.use_moonwalk = True  # Enable moonwalk at all stages
+        self.pe5_module = None
+        self.pe5_utils = PE5Utils()
+        self.relay_client = None
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
@@ -105,14 +123,26 @@ class AutoEnumerator:
             task7 = progress.add_task("[cyan]Certificate Enumeration...", total=100)
             self._enumerate_certificates(progress, task7)
             
+            # PE5 Privilege Escalation enumeration
+            task8 = progress.add_task("[cyan]PE5 Privilege Escalation...", total=100)
+            self._enumerate_privilege_escalation(progress, task8)
+            
+            # Relay connectivity checks
+            task8b = progress.add_task("[cyan]Relay Connectivity...", total=100)
+            self._enumerate_relay_connectivity(progress, task8b)
+            
             # LogHunter enumeration
-            task8 = progress.add_task("[cyan]LogHunter Analysis...", total=100)
-            self._enumerate_with_loghunter(progress, task8)
+            task9 = progress.add_task("[cyan]LogHunter Analysis...", total=100)
+            self._enumerate_with_loghunter(progress, task9)
+            
+            # Comprehensive tooling integration
+            task10 = progress.add_task("[cyan]Tooling Integration...", total=100)
+            self._enumerate_tooling_integration(progress, task10)
             
             # Moonwalk cleanup
             if self.use_moonwalk:
-                task9 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
-                self._perform_moonwalk_cleanup(progress, task9)
+                task11 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
+                self._perform_moonwalk_cleanup(progress, task11)
         
         return self.enumeration_data
     
@@ -136,6 +166,25 @@ class AutoEnumerator:
             if exit_code == 0:
                 privs = [line.strip() for line in stdout.split('\n') if 'Se' in line]
                 self.enumeration_data['foothold']['privileges'] = privs[:20]
+            
+            # Check for SYSTEM privileges
+            progress.update(task, advance=10, description="[cyan]SYSTEM privilege check...")
+            ps_cmd = """
+            $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $isSystem = ($token.User.Value -eq 'S-1-5-18')
+            $principal = New-Object System.Security.Principal.WindowsPrincipal($token)
+            $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+            Write-Host "IsSystem: $isSystem"
+            Write-Host "IsAdmin: $isAdmin"
+            Write-Host "UserSID: $($token.User.Value)"
+            """
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                self.enumeration_data['foothold']['privilege_status'] = stdout
+                if 'IsSystem: True' in stdout:
+                    self.enumeration_data['foothold']['has_system'] = True
+                else:
+                    self.enumeration_data['foothold']['has_system'] = False
             
             # Host role
             progress.update(task, advance=20, description="[cyan]Host role classification...")
@@ -750,6 +799,346 @@ class AutoEnumerator:
             self.enumeration_data['loghunter'] = {'error': str(e)}
             progress.update(task, advance=100)
     
+    def _enumerate_privilege_escalation(self, progress, task):
+        """Enumerate privilege escalation opportunities using PE5 and other methods"""
+        try:
+            pe_data = {
+                'current_privileges': {},
+                'pe5_available': False,
+                'pe5_framework_status': {},
+                'windows_version': {},
+                'pe_techniques': {},
+                'escalation_attempted': False,
+                'escalation_successful': False
+            }
+            
+            # Check current privileges
+            progress.update(task, advance=10, description="[cyan]Checking current privileges...")
+            ps_cmd = """
+            $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $principal = New-Object System.Security.Principal.WindowsPrincipal($token)
+            $isSystem = ($token.User.Value -eq 'S-1-5-18')
+            $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+            $hasElevated = $token.Token.HasElevatedPrivileges
+            
+            @{
+                IsSystem = $isSystem
+                IsAdmin = $isAdmin
+                HasElevatedPrivileges = $hasElevated
+                UserSID = $token.User.Value
+                UserName = $token.Name
+            } | ConvertTo-Json
+            """
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                try:
+                    pe_data['current_privileges'] = json.loads(stdout)
+                except:
+                    pe_data['current_privileges'] = {'raw': stdout}
+            
+            # Check Windows version for PE5 compatibility
+            progress.update(task, advance=15, description="[cyan]Detecting Windows version...")
+            exit_code, stdout, stderr = execute_cmd("systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"", lab_use=self.lab_use)
+            if exit_code == 0:
+                pe_data['windows_version']['info'] = stdout
+                # Extract version for PE5 offset detection
+                if 'Windows 10' in stdout or 'Windows 11' in stdout:
+                    pe_data['windows_version']['pe5_compatible'] = True
+                    # Determine offsets
+                    if '1909' in stdout:
+                        pe_data['windows_version']['token_offset'] = '0x360'
+                    else:
+                        pe_data['windows_version']['token_offset'] = '0x4B8'
+                else:
+                    pe_data['windows_version']['pe5_compatible'] = False
+            
+            # Check if PE5 framework is available
+            progress.update(task, advance=15, description="[cyan]Checking PE5 framework availability...")
+            pe5_framework_path = Path('pe5_framework_extracted/pe5_framework')
+            if pe5_framework_path.exists():
+                pe_data['pe5_available'] = True
+                pe_data['pe5_framework_status']['path'] = str(pe5_framework_path)
+                pe_data['pe5_framework_status']['exists'] = True
+                
+                # Check for compiled binaries
+                build_bin = pe5_framework_path / 'build' / 'bin'
+                if build_bin.exists():
+                    binaries = list(build_bin.glob('pe5_*'))
+                    pe_data['pe5_framework_status']['binaries'] = [str(b.name) for b in binaries]
+                    pe_data['pe5_framework_status']['compiled'] = True
+                else:
+                    pe_data['pe5_framework_status']['compiled'] = False
+            else:
+                pe_data['pe5_available'] = False
+                pe_data['pe5_framework_status']['exists'] = False
+            
+            # Enumerate PE techniques
+            progress.update(task, advance=20, description="[cyan]Enumerating PE techniques...")
+            
+            # Print Spooler (CVE-2020-1337)
+            ps_cmd = "Get-Service -Name Spooler -ErrorAction SilentlyContinue | Select-Object Name, Status, StartType"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                pe_data['pe_techniques']['print_spooler'] = {
+                    'service_status': stdout,
+                    'vulnerable': 'Running' in stdout
+                }
+            
+            # UAC status
+            exit_code, stdout, stderr = execute_cmd(
+                "reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System /v EnableLUA",
+                lab_use=self.lab_use
+            )
+            if exit_code == 0:
+                pe_data['pe_techniques']['uac'] = {
+                    'status': stdout,
+                    'enabled': '0x1' in stdout or '1' in stdout
+                }
+            
+            # SMBv3 version check (CVE-2020-0796)
+            ps_cmd = "Get-SmbServerConfiguration | Select-Object EnableSMB2Protocol"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                pe_data['pe_techniques']['smbv3'] = {
+                    'config': stdout,
+                    'smb_enabled': 'True' in stdout
+                }
+            
+            # Token manipulation opportunities
+            progress.update(task, advance=15, description="[cyan]Checking token manipulation opportunities...")
+            ps_cmd = """
+            $process = Get-Process -Id $PID
+            $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            
+            # Check SeDebugPrivilege
+            $hasDebug = $false
+            try {
+                $debugProc = Get-Process -Name lsass -ErrorAction SilentlyContinue
+                if ($debugProc) { $hasDebug = $true }
+            } catch {}
+            
+            @{
+                CanAccessLSASS = $hasDebug
+                ProcessId = $process.Id
+                TokenHandle = $token.Token.Handle.ToString()
+            } | ConvertTo-Json
+            """
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0:
+                try:
+                    pe_data['pe_techniques']['token_manipulation'] = json.loads(stdout)
+                except:
+                    pe_data['pe_techniques']['token_manipulation'] = {'raw': stdout}
+            
+            # Attempt PE5 escalation if available and not already SYSTEM
+            if pe_data['pe5_available'] and not pe_data['current_privileges'].get('IsSystem', False):
+                progress.update(task, advance=10, description="[yellow]PE5 escalation available but not attempted (requires manual execution)")
+                pe_data['escalation_attempted'] = False
+                pe_data['escalation_note'] = 'PE5 escalation requires manual execution for safety'
+            elif pe_data['current_privileges'].get('IsSystem', False):
+                pe_data['escalation_successful'] = True
+                pe_data['escalation_note'] = 'Already running as SYSTEM'
+            
+            self.enumeration_data['privilege_escalation'] = pe_data
+            progress.update(task, advance=100, description="[green]Privilege escalation enumeration complete")
+        
+        except Exception as e:
+            self.enumeration_data['privilege_escalation']['error'] = str(e)
+            progress.update(task, advance=100)
+    
+    def _enumerate_relay_connectivity(self, progress, task):
+        """Enumerate relay client connectivity options"""
+        try:
+            relay_data = {
+                'relay_configured': False,
+                'relay_endpoints': [],
+                'connectivity_tests': {},
+                'tor_available': False
+            }
+            
+            # Check for relay client configuration
+            progress.update(task, advance=20, description="[cyan]Checking relay configuration...")
+            config_paths = [
+                Path.home() / '.config' / 'ai-relay' / 'client.yaml',
+                Path('/etc/ai-relay/client.yaml'),
+                Path('config/remote_guided.yaml')
+            ]
+            
+            relay_config = None
+            for config_path in config_paths:
+                if config_path.exists():
+                    try:
+                        import yaml
+                        with open(config_path, 'r') as f:
+                            relay_config = yaml.safe_load(f)
+                        relay_data['relay_configured'] = True
+                        relay_data['config_path'] = str(config_path)
+                        relay_data['config'] = {
+                            'relay_host': relay_config.get('relay_host', 'N/A'),
+                            'relay_port': relay_config.get('relay_port', 'N/A'),
+                            'use_tls': relay_config.get('use_tls', False),
+                            'use_tor': relay_config.get('use_tor', False)
+                        }
+                        break
+                    except Exception as e:
+                        relay_data['config_error'] = str(e)
+            
+            if not relay_config:
+                relay_data['relay_configured'] = False
+                relay_data['note'] = 'No relay configuration found'
+            
+            # Test relay connectivity if configured
+            if relay_config:
+                progress.update(task, advance=30, description="[cyan]Testing relay connectivity...")
+                relay_host = relay_config.get('relay_host', '')
+                relay_port = relay_config.get('relay_port', 8889)
+                
+                # Test basic connectivity (without actually connecting)
+                relay_data['connectivity_tests'] = {
+                    'host': relay_host,
+                    'port': relay_port,
+                    'tls_enabled': relay_config.get('use_tls', False),
+                    'tor_enabled': relay_config.get('use_tor', False)
+                }
+                
+                # Check if host is .onion (Tor)
+                if relay_host.endswith('.onion'):
+                    relay_data['tor_required'] = True
+                    relay_data['connectivity_tests']['transport'] = 'Tor (.onion)'
+                elif relay_config.get('use_tor', False):
+                    relay_data['tor_required'] = True
+                    relay_data['connectivity_tests']['transport'] = 'Tor (SOCKS5)'
+                else:
+                    relay_data['tor_required'] = False
+                    relay_data['connectivity_tests']['transport'] = 'Direct'
+            
+            # Check for Tor availability
+            progress.update(task, advance=20, description="[cyan]Checking Tor availability...")
+            tor_checks = {
+                'tor_installed': False,
+                'tor_running': False,
+                'socks5_proxy': None
+            }
+            
+            # Check if Tor is installed
+            exit_code, stdout, stderr = execute_cmd("where tor", lab_use=self.lab_use)
+            if exit_code == 0:
+                tor_checks['tor_installed'] = True
+                tor_checks['tor_path'] = stdout.strip()
+            
+            # Check if Tor service is running
+            ps_cmd = "Get-Service -Name tor -ErrorAction SilentlyContinue | Select-Object Name, Status"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            if exit_code == 0 and 'tor' in stdout.lower():
+                tor_checks['tor_running'] = 'Running' in stdout
+            
+            # Check SOCKS5 proxy (default Tor port)
+            try:
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex(('127.0.0.1', 9050))
+                sock.close()
+                if result == 0:
+                    tor_checks['socks5_proxy'] = '127.0.0.1:9050'
+                    tor_checks['proxy_accessible'] = True
+                else:
+                    tor_checks['proxy_accessible'] = False
+            except:
+                tor_checks['proxy_accessible'] = False
+            
+            relay_data['tor_available'] = tor_checks['tor_installed'] and tor_checks.get('proxy_accessible', False)
+            relay_data['tor_status'] = tor_checks
+            
+            self.enumeration_data['relay_connectivity'] = relay_data
+            progress.update(task, advance=100, description="[green]Relay connectivity enumeration complete")
+        
+        except Exception as e:
+            self.enumeration_data['relay_connectivity']['error'] = str(e)
+            progress.update(task, advance=100)
+    
+    def _enumerate_tooling_integration(self, progress, task):
+        """Enumerate comprehensive tooling integration and usage"""
+        try:
+            tooling_data = {
+                'modules_available': {},
+                'tools_used': [],
+                'integration_status': {}
+            }
+            
+            # Check available modules
+            progress.update(task, advance=15, description="[cyan]Checking available modules...")
+            modules_to_check = {
+                'PE5': 'modules.pe5_system_escalation',
+                'Relay Client': 'modules.relay_client',
+                'LogHunter': 'modules.loghunter_integration',
+                'MADCert': 'modules.madcert_integration',
+                'LOLBins': 'modules.lolbins_reference',
+                'Moonwalk': 'modules.loghunter_integration'
+            }
+            
+            for module_name, module_path in modules_to_check.items():
+                try:
+                    __import__(module_path)
+                    tooling_data['modules_available'][module_name] = True
+                except ImportError:
+                    tooling_data['modules_available'][module_name] = False
+            
+            # Check PE5 utilities
+            progress.update(task, advance=15, description="[cyan]Checking PE5 utilities...")
+            try:
+                from modules.pe5_utils import PE5Utils
+                pe5_utils = PE5Utils()
+                tooling_data['integration_status']['pe5_utils'] = {
+                    'available': True,
+                    'techniques': list(pe5_utils.get_technique_info().keys())
+                }
+            except:
+                tooling_data['integration_status']['pe5_utils'] = {'available': False}
+            
+            # Check relay client
+            progress.update(task, advance=15, description="[cyan]Checking relay client...")
+            try:
+                from modules.relay_client import RelayClient, RelayClientConfig
+                tooling_data['integration_status']['relay_client'] = {'available': True}
+                
+                # Try to load config
+                try:
+                    config = RelayClientConfig()
+                    tooling_data['integration_status']['relay_client']['config_loaded'] = True
+                    tooling_data['integration_status']['relay_client']['relay_host'] = config.get_relay_host()
+                except:
+                    tooling_data['integration_status']['relay_client']['config_loaded'] = False
+            except:
+                tooling_data['integration_status']['relay_client'] = {'available': False}
+            
+            # Track tools used during enumeration
+            progress.update(task, advance=20, description="[cyan]Tracking tools used...")
+            tooling_data['tools_used'] = {
+                'lolbins': list(set(self.enumeration_data.get('lolbins_used', []))),
+                'powershell_commands': len([k for k in self.enumeration_data.keys() if 'ps_cmd' in str(k)]),
+                'cmd_commands': len([k for k in self.enumeration_data.keys() if 'cmd' in str(k).lower()]),
+                'wmi_commands': len([k for k in self.enumeration_data.get('lolbins_used', []) if 'wmic' in k.lower()])
+            }
+            
+            # Integration summary
+            progress.update(task, advance=20, description="[cyan]Generating integration summary...")
+            tooling_data['integration_summary'] = {
+                'total_modules': len(tooling_data['modules_available']),
+                'available_modules': sum(1 for v in tooling_data['modules_available'].values() if v),
+                'pe5_ready': tooling_data['modules_available'].get('PE5', False),
+                'relay_ready': tooling_data['modules_available'].get('Relay Client', False),
+                'loghunter_ready': tooling_data['modules_available'].get('LogHunter', False),
+                'moonwalk_ready': tooling_data['modules_available'].get('Moonwalk', False)
+            }
+            
+            self.enumeration_data['tooling_integration'] = tooling_data
+            progress.update(task, advance=100, description="[green]Tooling integration enumeration complete")
+        
+        except Exception as e:
+            self.enumeration_data['tooling_integration']['error'] = str(e)
+            progress.update(task, advance=100)
+    
     def _perform_moonwalk_cleanup(self, progress, task):
         """Perform moonwalk cleanup after enumeration"""
         try:
@@ -965,6 +1354,136 @@ class ReportGenerator:
                 report.append("Generated Certificates: None")
         report.append("")
         
+        # Privilege Escalation (PE5)
+        report.append("PRIVILEGE ESCALATION (PE5)")
+        report.append("-" * 80)
+        if 'privilege_escalation' in self.data:
+            pe = self.data['privilege_escalation']
+            if pe.get('current_privileges'):
+                cp = pe['current_privileges']
+                report.append(f"Current User: {cp.get('UserName', 'Unknown')}")
+                report.append(f"Is SYSTEM: {cp.get('IsSystem', False)}")
+                report.append(f"Is Admin: {cp.get('IsAdmin', False)}")
+                report.append(f"Has Elevated Privileges: {cp.get('HasElevatedPrivileges', False)}")
+            report.append(f"PE5 Framework Available: {pe.get('pe5_available', False)}")
+            if pe.get('pe5_framework_status'):
+                pfs = pe['pe5_framework_status']
+                report.append(f"  Framework Path: {pfs.get('path', 'N/A')}")
+                report.append(f"  Compiled: {pfs.get('compiled', False)}")
+                if pfs.get('binaries'):
+                    report.append(f"  Binaries: {', '.join(pfs['binaries'][:5])}")
+            if pe.get('windows_version'):
+                wv = pe['windows_version']
+                report.append(f"Windows Version: {wv.get('info', 'Unknown')[:50]}")
+                report.append(f"PE5 Compatible: {wv.get('pe5_compatible', False)}")
+                if wv.get('token_offset'):
+                    report.append(f"Token Offset: {wv['token_offset']}")
+            if pe.get('pe_techniques'):
+                pt = pe['pe_techniques']
+                report.append("PE Techniques Available:")
+                if pt.get('print_spooler'):
+                    report.append(f"  Print Spooler: Service running")
+                if pt.get('uac'):
+                    uac_enabled = pt['uac'].get('enabled', False)
+                    report.append(f"  UAC: {'Enabled' if uac_enabled else 'Disabled'}")
+                if pt.get('smbv3'):
+                    report.append(f"  SMBv3: {'Enabled' if pt['smbv3'].get('smb_enabled') else 'Disabled'}")
+            report.append(f"Escalation Attempted: {pe.get('escalation_attempted', False)}")
+            report.append(f"Escalation Successful: {pe.get('escalation_successful', False)}")
+        report.append("")
+        
+        # Relay Connectivity
+        report.append("RELAY CONNECTIVITY")
+        report.append("-" * 80)
+        if 'relay_connectivity' in self.data:
+            rc = self.data['relay_connectivity']
+            report.append(f"Relay Configured: {rc.get('relay_configured', False)}")
+            if rc.get('config'):
+                cfg = rc['config']
+                report.append(f"  Relay Host: {cfg.get('relay_host', 'N/A')}")
+                report.append(f"  Relay Port: {cfg.get('relay_port', 'N/A')}")
+                report.append(f"  TLS Enabled: {cfg.get('use_tls', False)}")
+                report.append(f"  Tor Enabled: {cfg.get('use_tor', False)}")
+            if rc.get('connectivity_tests'):
+                ct = rc['connectivity_tests']
+                report.append(f"Transport: {ct.get('transport', 'N/A')}")
+            report.append(f"Tor Available: {rc.get('tor_available', False)}")
+            if rc.get('tor_status'):
+                ts = rc['tor_status']
+                report.append(f"  Tor Installed: {ts.get('tor_installed', False)}")
+                report.append(f"  Tor Running: {ts.get('tor_running', False)}")
+                if ts.get('socks5_proxy'):
+                    report.append(f"  SOCKS5 Proxy: {ts['socks5_proxy']}")
+        report.append("")
+        
+        # Tooling Integration
+        report.append("TOOLING INTEGRATION")
+        report.append("-" * 80)
+        if 'tooling_integration' in self.data:
+            ti = self.data['tooling_integration']
+            if ti.get('modules_available'):
+                ma = ti['modules_available']
+                report.append("Available Modules:")
+                for module, available in ma.items():
+                    status = "✓" if available else "✗"
+                    report.append(f"  {status} {module}")
+            if ti.get('integration_summary'):
+                isum = ti['integration_summary']
+                report.append(f"Total Modules: {isum.get('total_modules', 0)}")
+                report.append(f"Available: {isum.get('available_modules', 0)}")
+                report.append(f"PE5 Ready: {isum.get('pe5_ready', False)}")
+                report.append(f"Relay Ready: {isum.get('relay_ready', False)}")
+                report.append(f"LogHunter Ready: {isum.get('loghunter_ready', False)}")
+                report.append(f"Moonwalk Ready: {isum.get('moonwalk_ready', False)}")
+            if ti.get('tools_used'):
+                tu = ti['tools_used']
+                report.append("Tools Used During Enumeration:")
+                report.append(f"  LOLBins: {len(tu.get('lolbins', []))}")
+                report.append(f"  PowerShell Commands: {tu.get('powershell_commands', 0)}")
+                report.append(f"  CMD Commands: {tu.get('cmd_commands', 0)}")
+                report.append(f"  WMI Commands: {tu.get('wmi_commands', 0)}")
+        report.append("")
+        
+        # LogHunter
+        report.append("LOGHUNTER ANALYSIS")
+        report.append("-" * 80)
+        if 'loghunter' in self.data:
+            lh = self.data['loghunter']
+            if lh.get('status'):
+                report.append(f"Status: {lh['status']}")
+            else:
+                report.append("Credential Access: Found" if lh.get('credential_access') else "Credential Access: None")
+                report.append("Lateral Movement: Found" if lh.get('lateral_movement') else "Lateral Movement: None")
+                report.append("Privilege Escalation: Found" if lh.get('privilege_escalation') else "Privilege Escalation: None")
+        report.append("")
+        
+        # Moonwalk Cleanup
+        report.append("MOONWALK CLEANUP")
+        report.append("-" * 80)
+        if 'moonwalk' in self.data:
+            mw = self.data['moonwalk']
+            if mw.get('event_logs'):
+                el = mw['event_logs']
+                cleared = el.get('cleared', [])
+                report.append(f"Event Logs Cleared: {len(cleared)}")
+                if cleared:
+                    report.append(f"  Logs: {', '.join(cleared[:5])}")
+            report.append("PowerShell History: Cleared")
+            report.append("Command History: Cleared")
+            if mw.get('registry'):
+                report.append("Registry Traces: Cleared")
+        report.append("")
+        
+        # Summary
+        report.append("ENUMERATION SUMMARY")
+        report.append("-" * 80)
+        report.append(f"Total Lateral Targets: {len(self.data.get('lateral_targets', []))}")
+        report.append(f"Lateral Paths Explored: {len(self.data.get('lateral_paths', []))}")
+        report.append(f"PE5 Available: {self.data.get('privilege_escalation', {}).get('pe5_available', False)}")
+        report.append(f"Relay Configured: {self.data.get('relay_connectivity', {}).get('relay_configured', False)}")
+        report.append(f"Tools Used: {len(self.data.get('lolbins_used', []))}")
+        report.append("")
+        
         report.append("=" * 80)
         report.append("END OF REPORT")
         report.append("=" * 80)
@@ -999,6 +1518,41 @@ class ReportGenerator:
         if 'network' in self.data:
             net = self.data['network']
             html.append(f"<p><strong>Local IPs:</strong> {len(net.get('local_ips', []))}</p>")
+            html.append(f"<p><strong>ARP Targets:</strong> {len(net.get('arp_targets', []))}</p>")
+        
+        # Privilege Escalation
+        html.append("<h2>Privilege Escalation (PE5)</h2>")
+        if 'privilege_escalation' in self.data:
+            pe = self.data['privilege_escalation']
+            if pe.get('current_privileges'):
+                cp = pe['current_privileges']
+                html.append(f"<p><strong>Current User:</strong> {cp.get('UserName', 'Unknown')}</p>")
+                html.append(f"<p><strong>Is SYSTEM:</strong> {cp.get('IsSystem', False)}</p>")
+                html.append(f"<p><strong>Is Admin:</strong> {cp.get('IsAdmin', False)}</p>")
+            html.append(f"<p><strong>PE5 Available:</strong> {pe.get('pe5_available', False)}</p>")
+            html.append(f"<p><strong>Escalation Successful:</strong> {pe.get('escalation_successful', False)}</p>")
+        
+        # Relay Connectivity
+        html.append("<h2>Relay Connectivity</h2>")
+        if 'relay_connectivity' in self.data:
+            rc = self.data['relay_connectivity']
+            html.append(f"<p><strong>Relay Configured:</strong> {rc.get('relay_configured', False)}</p>")
+            if rc.get('config'):
+                cfg = rc['config']
+                html.append(f"<p><strong>Relay Host:</strong> {cfg.get('relay_host', 'N/A')}</p>")
+                html.append(f"<p><strong>TLS Enabled:</strong> {cfg.get('use_tls', False)}</p>")
+            html.append(f"<p><strong>Tor Available:</strong> {rc.get('tor_available', False)}</p>")
+        
+        # Tooling Integration
+        html.append("<h2>Tooling Integration</h2>")
+        if 'tooling_integration' in self.data:
+            ti = self.data['tooling_integration']
+            if ti.get('integration_summary'):
+                isum = ti['integration_summary']
+                html.append(f"<p><strong>PE5 Ready:</strong> {isum.get('pe5_ready', False)}</p>")
+                html.append(f"<p><strong>Relay Ready:</strong> {isum.get('relay_ready', False)}</p>")
+                html.append(f"<p><strong>LogHunter Ready:</strong> {isum.get('loghunter_ready', False)}</p>")
+                html.append(f"<p><strong>Moonwalk Ready:</strong> {isum.get('moonwalk_ready', False)}</p>")
             html.append(f"<p><strong>ARP Targets:</strong> {len(net.get('arp_targets', []))}</p>")
         
         # Lateral Targets
