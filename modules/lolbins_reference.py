@@ -8,6 +8,8 @@ Reference: https://github.com/sheimo/awesome-lolbins-and-beyond
 """
 
 import base64
+import os
+import base64
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -633,7 +635,8 @@ class LOLBinsModule:
             '5': ('Establish Persistence', 'persistence'),
             '6': ('Download File', 'evasion'),
             '7': ('Clear Logs', 'evasion'),
-            '8': ('Copy Files', 'collection')
+            '8': ('Copy Files', 'collection'),
+            '9': ('Sign File with Certificate', 'evasion')
         }
         
         table = Table(title="Use Cases", box=box.ROUNDED)
@@ -664,7 +667,10 @@ class LOLBinsModule:
         elif category == 'persistence':
             self._build_persistence_command(console, session_data)
         elif category == 'evasion':
-            self._build_evasion_command(console, session_data, use_case_name)
+            if use_case_name == 'Sign File with Certificate':
+                self._build_certificate_signing_command(console, session_data)
+            else:
+                self._build_evasion_command(console, session_data, use_case_name)
         elif category == 'collection':
             self._build_collection_command(console, session_data)
     
@@ -1091,6 +1097,20 @@ wmic /namespace:\\\\root\\subscription PATH __FilterToConsumerBinding Create Fil
         """Build defense evasion command"""
         console.print(f"[bold]Defense Evasion Command Builder - {use_case}[/bold]\n")
         
+        # Check for MADCert integration
+        madcert_available = False
+        code_signing_certs = []
+        try:
+            from modules.madcert_integration import MADCertGenerator
+            madcert_gen = MADCertGenerator(console, session_data)
+            all_certs = madcert_gen.list_certificates()
+            code_signing_certs = [c for c in all_certs if c.get('type') == 'Client' and 'codeSigning' in str(c.get('key_usage', [])).lower()]
+            if code_signing_certs:
+                madcert_available = True
+                console.print(f"[green]MADCert integration: {len(code_signing_certs)} code signing certificate(s) available[/green]\n")
+        except Exception:
+            pass
+        
         if 'Download' in use_case:
             method = Prompt.ask(
                 "Download method",
@@ -1120,12 +1140,95 @@ wmic /namespace:\\\\root\\subscription PATH __FilterToConsumerBinding Create Fil
                 cmd = f'wevtutil.exe cl {log_type}'
         
         else:
-            method = Prompt.ask("Evasion method", choices=['certutil_encode', 'findstr'], default='certutil_encode')
+            evasion_methods = ['certutil_encode', 'certutil_sign', 'findstr']
+            if madcert_available:
+                evasion_methods.insert(1, 'sign_with_madcert')
+            
+            method = Prompt.ask("Evasion method", choices=evasion_methods, default='certutil_encode')
             
             if method == 'certutil_encode':
                 file_path = Prompt.ask("File to encode", default="file.exe")
                 encoded_file = Prompt.ask("Encoded output", default="file.b64")
                 cmd = f'certutil.exe -encode {file_path} {encoded_file}'
+            
+            elif method == 'certutil_sign':
+                file_path = Prompt.ask("File to sign", default="file.exe")
+                cert_file = Prompt.ask("Certificate file (.pfx)", default="cert.pfx")
+                password = Prompt.ask("Certificate password (optional)", default="", password=True)
+                
+                if password:
+                    cmd = f'certutil.exe -sign "{file_path}" "{cert_file}" {password}'
+                else:
+                    cmd = f'signtool.exe sign /f "{cert_file}" "{file_path}"'
+                    console.print("[dim]Note: Using signtool.exe for signing[/dim]\n")
+            
+            elif method == 'sign_with_madcert':
+                if not code_signing_certs:
+                    console.print("[yellow]No code signing certificates found[/yellow]")
+                    return
+                
+                # List available certificates
+                cert_table = Table(title="Available Code Signing Certificates", box=box.SIMPLE)
+                cert_table.add_column("Index", style="cyan")
+                cert_table.add_column("Name", style="white")
+                cert_table.add_column("CA", style="dim white")
+                
+                for i, cert in enumerate(code_signing_certs, 1):
+                    cert_table.add_row(str(i), cert['name'], cert.get('ca_name', 'N/A'))
+                
+                console.print(cert_table)
+                console.print()
+                
+                cert_idx = int(Prompt.ask("Select certificate", choices=[str(i) for i in range(1, len(code_signing_certs)+1)])) - 1
+                selected_cert = code_signing_certs[cert_idx]
+                
+                file_path = Prompt.ask("File to sign", default="file.exe")
+                
+                # Generate signing command
+                cert_file = selected_cert['cert_file']
+                key_file = selected_cert['key_file']
+                
+                console.print(f"\n[bold]Signing with:[/bold] {selected_cert['name']}")
+                console.print(f"[dim]Certificate: {cert_file}[/dim]")
+                console.print(f"[dim]Private Key: {key_file}[/dim]\n")
+                
+                # Use signtool or certutil
+                sign_method = Prompt.ask("Signing method", choices=['signtool', 'certutil', 'powershell'], default='signtool')
+                
+                if sign_method == 'signtool':
+                    # Convert to PFX if needed
+                    if cert_file.endswith('.crt'):
+                        pfx_path = cert_file.replace('.crt', '.pfx')
+                        password = Prompt.ask("PFX password (for conversion)", default="", password=True)
+                        console.print(f"[yellow]Step 1: Convert certificate to PFX[/yellow]")
+                        convert_cmd = f'openssl pkcs12 -export -out "{pfx_path}" -inkey "{key_file}" -in "{cert_file}" -password pass:{password}'
+                        console.print(f"[cyan]{convert_cmd}[/cyan]\n")
+                        cmd = f'{convert_cmd}\n\n'
+                        cmd += f'signtool.exe sign /f "{pfx_path}" /p {password} "{file_path}"'
+                    else:
+                        password = Prompt.ask("PFX password (optional)", default="", password=True)
+                        if password:
+                            cmd = f'signtool.exe sign /f "{cert_file}" /p {password} "{file_path}"'
+                        else:
+                            cmd = f'signtool.exe sign /f "{cert_file}" "{file_path}"'
+                    
+                    # Add timestamp option
+                    if Confirm.ask("Add timestamp?", default=True):
+                        timestamp_url = Prompt.ask("Timestamp URL", default="http://timestamp.digicert.com")
+                        cmd += f' /t {timestamp_url}'
+                
+                elif sign_method == 'certutil':
+                    pfx_path = cert_file.replace('.crt', '.pfx')
+                    password = Prompt.ask("PFX password (optional)", default="", password=True)
+                    if password:
+                        cmd = f'certutil.exe -sign "{file_path}" "{pfx_path}" {password}'
+                    else:
+                        cmd = f'certutil.exe -sign "{file_path}" "{pfx_path}"'
+                
+                else:
+                    # PowerShell signing
+                    cmd = f'''powershell.exe -Command "$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{cert_file}'); Set-AuthenticodeSignature -FilePath '{file_path}' -Certificate $cert"'''
+            
             else:
                 search_term = Prompt.ask("Search term", default="password")
                 search_path = Prompt.ask("Search path", default="C:\\Users\\*.txt")
@@ -1176,6 +1279,172 @@ wmic /namespace:\\\\root\\subscription PATH __FilterToConsumerBinding Create Fil
             cmd = f'copy "{source}" "{destination}"'
         
         self._display_generated_command(console, cmd, method, session_data)
+    
+    def _build_certificate_signing_command(self, console: Console, session_data: dict):
+        """Build certificate signing command with MADCert integration"""
+        console.print("[bold]Certificate-Based File Signing[/bold]\n")
+        
+        # Check MADCert availability
+        try:
+            from modules.madcert_integration import MADCertGenerator
+            madcert_gen = MADCertGenerator(console, session_data)
+            all_certs = madcert_gen.list_certificates()
+            
+            # Find code signing certificates
+            code_signing_certs = []
+            for cert in all_certs:
+                if cert.get('type') == 'Client':
+                    key_usage = cert.get('key_usage', [])
+                    if isinstance(key_usage, list):
+                        if any('codeSigning' in str(k).lower() or 'digitalSignature' in str(k).lower() for k in key_usage):
+                            code_signing_certs.append(cert)
+                    elif isinstance(key_usage, str) and ('codeSigning' in key_usage.lower() or 'digitalSignature' in key_usage.lower()):
+                        code_signing_certs.append(cert)
+            
+            if not code_signing_certs:
+                console.print("[yellow]No code signing certificates found in MADCert module[/yellow]")
+                console.print("[dim]Generate a code signing certificate in Module 8 first[/dim]\n")
+                
+                if Confirm.ask("[bold]Generate code signing certificate now?[/bold]", default=False):
+                    # Quick cert generation
+                    signer_name = Prompt.ask("Signer name", default="CodeSigner")
+                    
+                    # Check for CA
+                    cas = [c for c in all_certs if c.get('type') == 'CA']
+                    if not cas:
+                        console.print("[yellow]No CA found. Generating CA first...[/yellow]")
+                        ca_name = Prompt.ask("CA name", default="MyCA")
+                        try:
+                            ca_info = madcert_gen.generate_ca_certificate(ca_name)
+                            cas = [ca_name]
+                        except Exception as e:
+                            console.print(f"[red]CA generation failed: {e}[/red]")
+                            return
+                    
+                    ca_name = cas[0] if isinstance(cas[0], str) else cas[0]['name']
+                    try:
+                        cert_info = madcert_gen.generate_code_signing_certificate(signer_name, ca_name)
+                        code_signing_certs.append(cert_info)
+                        console.print(f"[green]Code signing certificate generated: {cert_info['cert_file']}[/green]\n")
+                    except Exception as e:
+                        console.print(f"[red]Certificate generation failed: {e}[/red]")
+                        return
+                else:
+                    # Use manual certificate path
+                    cert_file = Prompt.ask("Certificate file path (.pfx or .crt)", default="cert.pfx")
+                    key_file = Prompt.ask("Private key file path (if .crt)", default="")
+                    method = 'manual'
+            else:
+                # List available certificates
+                cert_table = Table(title="Available Code Signing Certificates", box=box.SIMPLE)
+                cert_table.add_column("Index", style="cyan")
+                cert_table.add_column("Name", style="white")
+                cert_table.add_column("CA", style="dim white")
+                cert_table.add_column("File", style="dim white")
+                
+                for i, cert in enumerate(code_signing_certs, 1):
+                    cert_table.add_row(
+                        str(i),
+                        cert['name'],
+                        cert.get('ca_name', 'N/A'),
+                        os.path.basename(cert['cert_file'])
+                    )
+                
+                console.print(cert_table)
+                console.print()
+                
+                cert_idx = int(Prompt.ask("Select certificate", choices=[str(i) for i in range(1, len(code_signing_certs)+1)])) - 1
+                selected_cert = code_signing_certs[cert_idx]
+                cert_file = selected_cert['cert_file']
+                key_file = selected_cert['key_file']
+                method = 'madcert'
+        
+        except Exception as e:
+            console.print(f"[yellow]MADCert integration unavailable: {e}[/yellow]")
+            console.print("[dim]Using manual certificate path[/dim]\n")
+            cert_file = Prompt.ask("Certificate file path (.pfx or .crt)", default="cert.pfx")
+            key_file = Prompt.ask("Private key file path (if .crt)", default="")
+            method = 'manual'
+        
+        # Get file to sign
+        file_path = Prompt.ask("File to sign", default="file.exe")
+        
+        # Choose signing method
+        sign_method = Prompt.ask(
+            "Signing method",
+            choices=['signtool', 'certutil', 'powershell', 'osslsigncode'],
+            default='signtool'
+        )
+        
+        if sign_method == 'signtool':
+            # Convert to PFX if needed
+            if cert_file.endswith('.crt') and key_file:
+                pfx_path = cert_file.replace('.crt', '.pfx')
+                password = Prompt.ask("PFX password", default="", password=True)
+                
+                # Generate PFX conversion command
+                console.print(f"\n[yellow]Step 1: Convert certificate to PFX[/yellow]")
+                convert_cmd = f'openssl pkcs12 -export -out "{pfx_path}" -inkey "{key_file}" -in "{cert_file}" -password pass:{password}'
+                console.print(f"[cyan]{convert_cmd}[/cyan]\n")
+                
+                cmd = f'{convert_cmd}\n\n'
+                cmd += f'signtool.exe sign /f "{pfx_path}" /p {password} "{file_path}"'
+            else:
+                password = Prompt.ask("PFX password (optional)", default="", password=True)
+                if password:
+                    cmd = f'signtool.exe sign /f "{cert_file}" /p {password} "{file_path}"'
+                else:
+                    cmd = f'signtool.exe sign /f "{cert_file}" "{file_path}"'
+            
+            # Add timestamp option
+            if Confirm.ask("Add timestamp?", default=True):
+                timestamp_url = Prompt.ask("Timestamp URL", default="http://timestamp.digicert.com")
+                cmd += f' /t {timestamp_url}'
+        
+        elif sign_method == 'certutil':
+            if cert_file.endswith('.pfx'):
+                password = Prompt.ask("PFX password", default="", password=True)
+                if password:
+                    cmd = f'certutil.exe -sign "{file_path}" "{cert_file}" {password}'
+                else:
+                    cmd = f'certutil.exe -sign "{file_path}" "{cert_file}"'
+            else:
+                console.print("[yellow]certutil requires PFX format[/yellow]")
+                return
+        
+        elif sign_method == 'powershell':
+            if cert_file.endswith('.crt'):
+                cmd = f'''powershell.exe -Command "$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{cert_file}'); Set-AuthenticodeSignature -FilePath '{file_path}' -Certificate $cert"'''
+            else:
+                # PFX import and sign
+                password = Prompt.ask("PFX password", default="", password=True)
+                if password:
+                    secure_pass = f'ConvertTo-SecureString -String "{password}" -Force -AsPlainText'
+                else:
+                    secure_pass = '""'
+                
+                cmd = f'''powershell.exe -Command "$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{cert_file}', {secure_pass}); Set-AuthenticodeSignature -FilePath '{file_path}' -Certificate $cert"'''
+        
+        else:
+            # osslsigncode (open source alternative)
+            if cert_file.endswith('.crt') and key_file:
+                cmd = f'osslsigncode sign -certs "{cert_file}" -key "{key_file}" -in "{file_path}" -out "{file_path}.signed"'
+            else:
+                console.print("[yellow]osslsigncode requires separate cert and key files[/yellow]")
+                return
+        
+        # Add verification command
+        if Confirm.ask("Add verification command?", default=True):
+            if sign_method == 'signtool':
+                verify_cmd = f'\nsigntool.exe verify /pa "{file_path}"'
+            elif sign_method == 'powershell':
+                verify_cmd = f'\npowershell.exe -Command "Get-AuthenticodeSignature -FilePath \'{file_path}\'"'
+            else:
+                verify_cmd = f'\ncertutil.exe -verify "{file_path}"'
+            
+            cmd += verify_cmd
+        
+        self._display_generated_command(console, cmd, 'certificate_signing', session_data)
     
     def _display_generated_command(self, console: Console, cmd: str, method: str, session_data: dict):
         """Display generated command with options"""

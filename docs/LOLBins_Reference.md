@@ -88,6 +88,48 @@ Each LOLBin includes:
 - Use cases
 - Command examples
 
+## MADCert Integration
+
+The Defense Evasion Builder integrates seamlessly with the MADCert module (Module 8):
+
+### Certificate-Based File Signing
+
+1. **Generate Code Signing Certificate** (Module 8):
+   - Create CA certificate
+   - Generate code signing certificate with digitalSignature and codeSigning key usage
+
+2. **Sign Files** (Module 9 → Option 10 → "Sign File with Certificate"):
+   - Automatically detects MADCert-generated certificates
+   - Select certificate from list
+   - Choose signing method (signtool, certutil, PowerShell, osslsigncode)
+   - Generate signing commands with verification
+
+### Workflow Example
+
+```
+1. Module 8 → Generate CA → "MyCA"
+2. Module 8 → Generate Code Signing Certificate → "CodeSigner"
+3. Module 9 → Option 10 → "Sign File with Certificate"
+4. Select "CodeSigner" certificate
+5. Choose file to sign: malicious.dll
+6. Generate: signtool.exe sign /f cert.pfx malicious.dll
+7. Use signed DLL for DLL sideloading attacks
+```
+
+### Signing Methods
+
+- **signtool.exe**: Windows native signing tool
+- **certutil.exe**: Certificate utility signing
+- **PowerShell**: Set-AuthenticodeSignature cmdlet
+- **osslsigncode**: Open source alternative
+
+### Benefits
+
+- **Bypass Application Whitelisting**: Signed binaries are trusted
+- **DLL Sideloading**: Sign malicious DLLs for sideloading attacks
+- **Legitimate Appearance**: Signed code appears legitimate
+- **OPSEC**: Use legitimate signing tools and certificates
+
 ## Integration with TTPs
 
 ### Execution TTPs

@@ -34,6 +34,8 @@ A unified Text User Interface (TUI) for Windows lateral movement simulation, des
    - Features: Searchable database of legitimate Windows binaries
    - Categories: Execution, Lateral Movement, Credential Access, Discovery, Persistence, Defense Evasion, Collection
    - Integration: MITRE ATT&CK technique mappings and usage examples
+   - Dynamic Command Builder: Interactive command generation based on use cases
+   - MADCert Integration: Certificate-based file signing with MADCert-generated certificates
 
 ## Installation
 
