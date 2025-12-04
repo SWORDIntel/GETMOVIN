@@ -68,7 +68,7 @@ LAB_USE = 1  # Lab mode
 
 ### AUTO_ENUMERATE Flag
 
-The `AUTO_ENUMERATE` flag enables automatic comprehensive enumeration:
+The `AUTO_ENUMERATE` flag enables automatic comprehensive enumeration with lateral movement:
 
 - **AUTO_ENUMERATE = 1**: Automatically enumerate all modules on startup and generate comprehensive report
 - **AUTO_ENUMERATE = 0**: Interactive mode (default)
@@ -77,7 +77,17 @@ When enabled, the tool will:
 1. Automatically run enumeration across all modules
 2. Collect foothold, orientation, identity, network, and persistence data
 3. Test lateral movement targets
-4. Generate comprehensive reports in multiple formats (TXT, JSON, HTML)
+4. **Automatically perform lateral movement** to accessible targets using LOTL techniques
+5. **Recursively enumerate** up to 3 machines deep
+6. Track all lateral movement paths and methods used
+7. Generate comprehensive reports in multiple formats (TXT, JSON, HTML)
+
+**Automatic Lateral Movement Features:**
+- Detects accessible targets (SMB/WinRM)
+- Uses only LOTL techniques (wmic, schtasks, net, PowerShell remoting)
+- Maximum depth: 3 machines
+- Tracks visited hosts to prevent loops
+- Records all paths and enumeration data
 
 To enable:
 

