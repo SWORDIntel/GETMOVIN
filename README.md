@@ -1,4 +1,4 @@
-# WW-SLAM : WIndows-Spcieic Lateral Access / Movement tool
+# W-SLAM : WIndows-Spcieic Lateral Access / Movement tool
 
 **Red team enumeration and movement plus full tooling for complex systems**
 
