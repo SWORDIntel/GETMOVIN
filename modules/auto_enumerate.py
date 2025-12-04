@@ -27,6 +27,7 @@ from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
 from modules.diagram_generator import DiagramGenerator
 from modules.vlan_bypass import VLANBypassModule, DEFAULT_CREDENTIALS, NETWORK_CVES, VLAN_HOP_TECHNIQUES
+from modules.credential_manager import get_credential_manager, CredentialType, CredentialSource
 
 
 class AutoEnumerator:
@@ -64,6 +65,7 @@ class AutoEnumerator:
         self.pe5_utils = PE5Utils()
         self.relay_client = None
         self.vlan_bypass_module = None  # APT-41 VLAN bypass module
+        self.cred_manager = get_credential_manager()  # Credential storage
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
@@ -152,6 +154,15 @@ class AutoEnumerator:
             if self.use_moonwalk:
                 task12 = progress.add_task("[cyan]Moonwalk Cleanup...", total=100)
                 self._perform_moonwalk_cleanup(progress, task12)
+        
+        # Add credential summary to enumeration data
+        self.enumeration_data['credential_store'] = self.cred_manager.get_summary()
+        
+        # Display credential summary
+        cred_summary = self.enumeration_data['credential_store']
+        if cred_summary['total'] > 0:
+            self.console.print(f"\n[bold green]✓ Credentials saved to ./loot/credentials/[/bold green]")
+            self.console.print(f"[dim]Total: {cred_summary['total']} | Valid: {cred_summary['valid']} | Tested: {cred_summary['tested']}[/dim]")
         
         return self.enumeration_data
     
@@ -1394,14 +1405,26 @@ class AutoEnumerator:
             
             # Priority: test:test first (APT-41 common credential)
             priority_targets = [
-                {"ip": "10.10.10.10", "username": "test", "password": "test", "success": True, "device": "JUMP-HOST01"},
-                {"ip": "10.10.10.2", "username": "cisco", "password": "cisco", "success": True, "device": "L3-SW01"},
-                {"ip": "10.10.50.10", "username": "admin", "password": "12345", "success": True, "device": "CAM-LOBBY01"},
-                {"ip": "10.10.50.20", "username": "admin", "password": "admin", "success": True, "device": "HVAC-01"},
+                {"ip": "10.10.10.10", "username": "test", "password": "test", "success": True, "device": "JUMP-HOST01", "vendor": "Generic", "protocol": "ssh", "port": 22},
+                {"ip": "10.10.10.2", "username": "cisco", "password": "cisco", "success": True, "device": "L3-SW01", "vendor": "Cisco", "protocol": "ssh", "port": 22},
+                {"ip": "10.10.50.10", "username": "admin", "password": "12345", "success": True, "device": "CAM-LOBBY01", "vendor": "Hikvision", "protocol": "http", "port": 80},
+                {"ip": "10.10.50.20", "username": "admin", "password": "admin", "success": True, "device": "HVAC-01", "vendor": "Honeywell", "protocol": "http", "port": 80},
             ]
             
             if self.lab_use == 1:
                 vlan_data['default_credentials_found'] = [t for t in priority_targets if t['success']]
+                
+                # Save discovered credentials to persistent storage
+                for cred in vlan_data['default_credentials_found']:
+                    self.cred_manager.add_default_credential(
+                        username=cred['username'],
+                        password=cred['password'],
+                        vendor=cred.get('vendor', 'Unknown'),
+                        target=cred['ip'],
+                        protocol=cred.get('protocol', 'ssh'),
+                        port=cred.get('port', 22),
+                        success=cred['success']
+                    )
             
             # Phase 4: CVE vulnerability assessment
             progress.update(task, advance=15, description="[cyan]Checking network CVEs...")

@@ -39,6 +39,9 @@ from rich.tree import Tree
 from rich.text import Text
 
 from modules.utils import execute_cmd, execute_powershell
+from modules.credential_manager import (
+    get_credential_manager, CredentialType, CredentialSource, Credential
+)
 
 # Lazy imports to avoid circular dependencies
 def get_identity_module():
@@ -832,6 +835,9 @@ class VLANBypassModule:
         self.accessible_vlans = []  # VLANs we can reach
         self.pivot_hosts = []  # Hosts useful for pivoting
         
+        # Credential manager for persistent storage
+        self.cred_manager = get_credential_manager()
+        
         # Module integration
         self._identity_module = None
         self._lateral_module = None
@@ -972,9 +978,9 @@ class VLANBypassModule:
         # Simulated scan results for lab mode
         if lab_use == 1:
             simulated_results = [
-                {"ip": "10.10.10.2", "hostname": "L3-SW01", "cred": "cisco:cisco", "protocol": "ssh"},
-                {"ip": "10.10.10.10", "hostname": "JUMP-HOST01", "cred": "test:test", "protocol": "ssh"},
-                {"ip": "10.10.50.10", "hostname": "CAM-LOBBY01", "cred": "admin:12345", "protocol": "http"},
+                {"ip": "10.10.10.2", "hostname": "L3-SW01", "cred": "cisco:cisco", "protocol": "ssh", "vendor": "Cisco"},
+                {"ip": "10.10.10.10", "hostname": "JUMP-HOST01", "cred": "test:test", "protocol": "ssh", "vendor": "Generic"},
+                {"ip": "10.10.50.10", "hostname": "CAM-LOBBY01", "cred": "admin:12345", "protocol": "http", "vendor": "Hikvision"},
             ]
             
             with Progress(
@@ -1002,6 +1008,21 @@ class VLANBypassModule:
                 for r in simulated_results:
                     result_table.add_row(r["ip"], r["hostname"], r["cred"], r["protocol"])
                     self.successful_creds.append(r)
+                    
+                    # Save credential to persistent storage
+                    username, password = r["cred"].split(":", 1)
+                    port = 22 if r["protocol"] == "ssh" else 80 if r["protocol"] == "http" else 443
+                    self.cred_manager.add_default_credential(
+                        username=username,
+                        password=password,
+                        vendor=r.get("vendor", "Unknown"),
+                        target=r["ip"],
+                        protocol=r["protocol"],
+                        port=port,
+                        success=True
+                    )
+                
+                self.console.print(f"\n[green]✓ {len(simulated_results)} credentials saved to ./loot/credentials/[/green]")
                 
                 self.console.print(result_table)
                 
