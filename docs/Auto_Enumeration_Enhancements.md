@@ -157,7 +157,21 @@ enumeration_reports/
 │   │   ├── privilege_escalation.mmd
 │   │   ├── system_architecture.mmd
 │   │   ├── attack_timeline.mmd
-│   │   └── README.md
+│   │   ├── README.md
+│   │   └── remote_targets/
+│   │       ├── 192_168_1_100_depth1_143530/
+│   │       │   ├── enumeration_report_192_168_1_100.txt
+│   │       │   ├── enumeration_report_192_168_1_100.json
+│   │       │   ├── enumeration_report_192_168_1_100.html
+│   │       │   ├── mitre_attack_flow.mmd
+│   │       │   ├── network_topology.mmd
+│   │       │   ├── lateral_movement.mmd
+│   │       │   ├── privilege_escalation.mmd
+│   │       │   ├── system_architecture.mmd
+│   │       │   ├── attack_timeline.mmd
+│   │       │   └── README.md
+│   │       └── SERVER02_depth2_143545/
+│   │           └── ...
 │   └── DC01_20240115_150530/
 │       └── ...
 ├── 2024-01-16/
@@ -198,6 +212,25 @@ Each enumeration session generates:
    - Overview of the enumeration session
    - Links to all reports and diagrams
    - Viewing instructions
+   - List of remote machines enumerated (if any)
+
+### Remote Machine Reports
+
+**NEW**: When auto enumeration discovers and enumerates remote machines during lateral movement, each remote machine automatically gets its own complete set of reports and diagrams!
+
+Each remote machine enumeration includes:
+- **Complete Reports**: Text, JSON, and HTML formats
+- **All 6 Diagrams**: MITRE attack flow, network topology, lateral movement, privilege escalation, system architecture, and attack timeline
+- **Separate Directory**: Organized under `remote_targets/` subdirectory
+- **Naming Convention**: `{target_name}_depth{depth}_{timestamp}/`
+- **Index File**: Each remote machine has its own README.md
+
+**Benefits:**
+- ✅ Individual analysis of each discovered machine
+- ✅ Complete context for lateral movement paths
+- ✅ Easy comparison between machines
+- ✅ Depth tracking for multi-hop lateral movement
+- ✅ All data preserved for each target
 
 ### Benefits
 
@@ -301,7 +334,21 @@ enumeration_reports/
         ├── lateral_movement.mmd         # Lateral paths
         ├── privilege_escalation.mmd     # PE flow
         ├── system_architecture.mmd      # System overview
-        └── attack_timeline.mmd          # Timeline
+        ├── attack_timeline.mmd          # Timeline
+        └── remote_targets/              # Remote machines enumerated
+            ├── 192_168_1_100_depth1_143530/
+            │   ├── README.md            # Remote machine index
+            │   ├── enumeration_report_192_168_1_100.txt
+            │   ├── enumeration_report_192_168_1_100.json
+            │   ├── enumeration_report_192_168_1_100.html
+            │   ├── mitre_attack_flow.mmd
+            │   ├── network_topology.mmd
+            │   ├── lateral_movement.mmd
+            │   ├── privilege_escalation.mmd
+            │   ├── system_architecture.mmd
+            │   └── attack_timeline.mmd
+            └── SERVER02_depth2_143545/
+                └── ...                   # Another remote machine
 ```
 
 ### Example README.md Content
@@ -340,6 +387,10 @@ All diagrams are in Mermaid format (.mmd). View them using:
 4. **Sharing**: Share entire session directories for complete context
 5. **Analysis**: Use JSON format for automated analysis
 6. **Documentation**: Review diagrams for visual understanding
+7. **Remote Machines**: Check `remote_targets/` subdirectory for discovered machines
+8. **Depth Tracking**: Use depth indicators to understand lateral movement paths
+9. **Comparison**: Compare remote machine reports to identify patterns
+10. **Complete Context**: Each remote machine has full enumeration data for independent analysis
 
 ## Troubleshooting
 

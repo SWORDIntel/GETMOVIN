@@ -500,18 +500,30 @@ enumeration_reports/
 │   │   ├── privilege_escalation.mmd
 │   │   ├── system_architecture.mmd
 │   │   ├── attack_timeline.mmd
-│   │   └── README.md
+│   │   ├── README.md
+│   │   └── remote_targets/          # NEW: Remote machines enumerated
+│   │       ├── target1_depth1_TIMESTAMP/
+│   │       │   ├── Complete reports & diagrams
+│   │       │   └── README.md
+│   │       └── target2_depth2_TIMESTAMP/
+│   │           └── ...
 ```
 
 Reports are sorted by:
 1. **Date** (YYYY-MM-DD format)
 2. **Machine name** + **Timestamp** (for multiple runs on same day)
+3. **Remote targets** (in `remote_targets/` subdirectory, organized by target name, depth, and timestamp)
+
+**NEW Feature**: When auto enumeration discovers remote machines during lateral movement, each machine automatically gets its own complete set of reports and diagrams stored in `remote_targets/`!
 
 This organization makes it easy to:
 - Track enumeration history over time
 - Compare results across different machines
 - Review specific enumeration sessions
 - Share reports with team members
+- **Analyze each discovered remote machine independently**
+- **Track lateral movement depth and paths**
+- **Compare remote machine configurations**
 
 ## 🧪 Testing
 

@@ -457,6 +457,9 @@ class AutoEnumerator:
                 # Enumerate remote target
                 remote_data = self._enumerate_remote_target(target, target_info, depth)
                 
+                # Generate reports and diagrams for remote machine
+                self._generate_remote_machine_reports(target, remote_data, progress, task)
+                
                 # Moonwalk cleanup after remote enumeration
                 if self.use_moonwalk:
                     try:
@@ -516,10 +519,18 @@ class AutoEnumerator:
         remote_data = {
             'target': target,
             'depth': depth,
+            'timestamp': datetime.now().isoformat(),
+            'initial_host': target,  # This is the remote host
+            'foothold': {},
+            'orientation': {},
             'identity': {},
             'network': {},
             'system_info': {},
-            'shares': []
+            'shares': [],
+            'lateral_targets': [],
+            'persistence': {},
+            'privilege_escalation': {},
+            'lolbins_used': []
         }
         
         try:
@@ -555,7 +566,52 @@ class AutoEnumerator:
                 exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=self.lab_use)
                 if exit_code == 0:
                     remote_data['identity']['whoami_executed'] = True
+                    remote_data['foothold']['identity'] = stdout.strip() if stdout.strip() else 'Remote execution'
                     self.enumeration_data['lolbins_used'].append(f'wmic /node:{target} process call create')
+                    remote_data['lolbins_used'].append(f'wmic /node:{target} process call create')
+                
+                # Get system info for foothold
+                if remote_data.get('system_info', {}).get('os'):
+                    remote_data['foothold']['system_info'] = remote_data['system_info']['os']
+                
+                # Get network configuration remotely
+                ps_cmd = f'Invoke-Command -ComputerName {target} -ScriptBlock {{ ipconfig /all }}'
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    import re
+                    ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+                    ips = re.findall(ip_pattern, stdout)
+                    is_local_ip = self.session_data.get('is_local_ip', lambda x: False)
+                    local_ips = [ip for ip in ips if is_local_ip(ip)]
+                    remote_data['network']['local_ips'] = list(set(local_ips))[:10]
+                    remote_data['network']['ipconfig'] = stdout[:500]
+                
+                # Get listening ports remotely
+                ps_cmd = f'Invoke-Command -ComputerName {target} -ScriptBlock {{ netstat -ano | findstr LISTENING }}'
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+                if exit_code == 0:
+                    ports = {}
+                    for line in stdout.split('\n'):
+                        if 'LISTENING' in line:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                addr = parts[1]
+                                if ':' in addr:
+                                    port = addr.split(':')[-1]
+                                    ports[port] = ports.get(port, 0) + 1
+                    remote_data['foothold']['listening_ports'] = list(ports.keys())[:30]
+                    
+                    # Classify role
+                    if '389' in ports or '88' in ports:
+                        remote_data['foothold']['role'] = 'Domain Controller'
+                    elif '445' in ports:
+                        remote_data['foothold']['role'] = 'File Server'
+                    elif '80' in ports or '443' in ports:
+                        remote_data['foothold']['role'] = 'Web Server'
+                    elif '5985' in ports or '5986' in ports:
+                        remote_data['foothold']['role'] = 'Management Server'
+                    else:
+                        remote_data['foothold']['role'] = 'Workstation/Other'
             
             elif use_smb:
                 # Use SMB for remote enumeration (LOTL)
@@ -564,6 +620,7 @@ class AutoEnumerator:
                 exit_code, stdout, stderr = execute_cmd(smb_cmd, lab_use=self.lab_use)
                 if exit_code == 0:
                     remote_data['network']['shares'] = stdout[:200]
+                    remote_data['network']['local_shares'] = stdout[:200]
                     # Parse shares
                     shares = []
                     for line in stdout.split('\n'):
@@ -573,6 +630,7 @@ class AutoEnumerator:
                                 shares.append(parts[0])
                     remote_data['shares'] = shares[:10]
                     self.enumeration_data['lolbins_used'].append(f'net view \\\\{target}')
+                    remote_data['lolbins_used'].append(f'net view \\\\{target}')
                 
                 # Execute command via scheduled task (LOTL)
                 task_name = f"EnumTask_{int(time.time())}"
@@ -597,6 +655,14 @@ class AutoEnumerator:
                     exit_code, stdout, stderr = execute_cmd(read_cmd, lab_use=self.lab_use)
                     if exit_code == 0:
                         remote_data['identity']['whoami'] = stdout.strip()
+                        remote_data['foothold']['identity'] = stdout.strip()
+                
+                # Get listening ports via SMB (if possible)
+                # Note: Limited enumeration via SMB, but we can try to get system info
+                if remote_data.get('network', {}).get('shares'):
+                    # If we have shares, classify as file server
+                    if not remote_data['foothold'].get('role'):
+                        remote_data['foothold']['role'] = 'File Server'
                     
                     # Clean up task
                     delete_cmd = f'schtasks /delete /s {target} /tn {task_name} /f'
@@ -611,6 +677,110 @@ class AutoEnumerator:
             remote_data['error'] = str(e)
         
         return remote_data
+    
+    def _generate_remote_machine_reports(self, target: str, remote_data: Dict[str, Any], progress, task):
+        """Generate reports and diagrams for a remote machine"""
+        try:
+            # Create report directory structure: enumeration_reports/YYYY-MM-DD/machine_time/remote_targets/target/
+            report_base = Path('enumeration_reports')
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            
+            # Get main machine identifier
+            try:
+                exit_code, stdout, stderr = execute_cmd("hostname", lab_use=self.lab_use)
+                if exit_code == 0:
+                    main_machine_name = stdout.strip().replace(' ', '_').replace('/', '_')
+                else:
+                    main_machine_name = "unknown"
+            except Exception:
+                main_machine_name = "unknown"
+            
+            # Find the most recent report directory for today, or create a new one
+            date_dir = report_base / date_str
+            if date_dir.exists():
+                # Find the most recent session directory
+                session_dirs = [d for d in date_dir.iterdir() if d.is_dir() and main_machine_name in d.name]
+                if session_dirs:
+                    # Sort by modification time and get the most recent
+                    main_report_dir = max(session_dirs, key=lambda p: p.stat().st_mtime)
+                else:
+                    # Create new session directory
+                    main_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    main_report_dir = date_dir / f"{main_machine_name}_{main_timestamp}"
+                    main_report_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                # Create new date directory and session directory
+                main_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                main_report_dir = report_base / date_str / f"{main_machine_name}_{main_timestamp}"
+                main_report_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create remote targets subdirectory
+            remote_targets_dir = main_report_dir / "remote_targets"
+            remote_targets_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create target-specific directory
+            target_name = target.replace(' ', '_').replace('/', '_').replace('\\', '_').replace('.', '_')
+            depth = remote_data.get('depth', 0)
+            timestamp_suffix = datetime.now().strftime("%H%M%S")
+            target_dir = remote_targets_dir / f"{target_name}_depth{depth}_{timestamp_suffix}"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            progress.update(task, advance=2, description=f"[cyan]Generating reports for {target}...")
+            
+            # Generate diagrams for remote machine
+            diagram_gen = DiagramGenerator(remote_data)
+            diagrams = diagram_gen.generate_all_diagrams()
+            diagram_files = diagram_gen.save_diagrams(target_dir)
+            
+            # Generate reports for remote machine
+            report_gen = ReportGenerator(self.console, remote_data)
+            
+            # Text report
+            text_report = report_gen.generate_text_report()
+            text_filename = target_dir / f"enumeration_report_{target_name}.txt"
+            with open(text_filename, 'w', encoding='utf-8') as f:
+                f.write(text_report)
+            
+            # JSON report
+            json_report = report_gen.generate_json_report()
+            json_filename = target_dir / f"enumeration_report_{target_name}.json"
+            with open(json_filename, 'w', encoding='utf-8') as f:
+                f.write(json_report)
+            
+            # HTML report
+            html_report = report_gen.generate_html_report()
+            html_filename = target_dir / f"enumeration_report_{target_name}.html"
+            with open(html_filename, 'w', encoding='utf-8') as f:
+                f.write(html_report)
+            
+            # Create index file
+            index_content = []
+            index_content.append(f"# Remote Machine Enumeration Report: {target}\n\n")
+            index_content.append(f"**Generated:** {remote_data.get('timestamp', datetime.now().isoformat())}\n")
+            index_content.append(f"**Target:** {target}\n")
+            index_content.append(f"**Depth:** {remote_data.get('depth', 0)}\n")
+            index_content.append(f"**Method:** {remote_data.get('method', 'unknown')}\n\n")
+            index_content.append("## Reports\n")
+            index_content.append(f"- Text Report: `enumeration_report_{target_name}.txt`\n")
+            index_content.append(f"- JSON Report: `enumeration_report_{target_name}.json`\n")
+            index_content.append(f"- HTML Report: `enumeration_report_{target_name}.html`\n\n")
+            index_content.append("## Diagrams\n")
+            index_content.append("All diagrams are in Mermaid format (.mmd). View them using:\n")
+            index_content.append("- [Mermaid Live Editor](https://mermaid.live)\n")
+            index_content.append("- VS Code with Mermaid extension\n")
+            index_content.append("- GitHub (renders automatically)\n\n")
+            for diagram_name, diagram_path in diagram_files.items():
+                index_content.append(f"- **{diagram_name.replace('_', ' ').title()}**: `{diagram_path.name}`\n")
+            
+            index_file = target_dir / "README.md"
+            with open(index_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(index_content))
+            
+            self.console.print(f"[green]Reports generated for {target}:[/green] {target_dir}")
+            
+        except Exception as e:
+            self.console.print(f"[yellow]Warning: Could not generate reports for {target}: {e}[/yellow]")
+            # Don't fail enumeration if report generation fails
     
     def _discover_remote_targets(self, target: str, target_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Discover targets from a remote machine using LOTL"""
@@ -1752,6 +1922,14 @@ class AutoEnumerateModule:
                     f.write(html_report)
                 console.print(f"[green]HTML report saved:[/green] {filename.name}")
             
+            # Check for remote machine reports
+            remote_targets_dir = report_dir / "remote_targets"
+            remote_machines = []
+            if remote_targets_dir.exists():
+                for remote_dir in remote_targets_dir.iterdir():
+                    if remote_dir.is_dir():
+                        remote_machines.append(remote_dir.name)
+            
             # Create index file with diagram references
             index_content = []
             index_content.append("# Enumeration Report Index\n")
@@ -1770,9 +1948,26 @@ class AutoEnumerateModule:
             for diagram_name, diagram_path in diagram_files.items():
                 index_content.append(f"- **{diagram_name.replace('_', ' ').title()}**: `{diagram_path.name}`\n")
             
+            # Add remote machines section if any were enumerated
+            if remote_machines:
+                index_content.append("\n## Remote Machines Enumerated\n")
+                index_content.append(f"**Total Remote Machines:** {len(remote_machines)}\n\n")
+                index_content.append("Each remote machine has its own complete set of reports and diagrams:\n\n")
+                for remote_machine in sorted(remote_machines):
+                    index_content.append(f"- **{remote_machine}**: See `remote_targets/{remote_machine}/`\n")
+                index_content.append("\nEach remote machine directory contains:\n")
+                index_content.append("- Complete enumeration reports (txt, json, html)\n")
+                index_content.append("- All 6 Mermaid diagrams\n")
+                index_content.append("- README.md index file\n")
+            
             index_file = report_dir / "README.md"
             with open(index_file, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(index_content))
             console.print(f"[green]Index file saved:[/green] {index_file.name}")
+            
+            if remote_machines:
+                console.print(f"\n[cyan]Remote machines enumerated:[/cyan] {len(remote_machines)}")
+                for remote_machine in sorted(remote_machines):
+                    console.print(f"  - {remote_machine}")
         
         console.print("\n[green]Enumeration complete![/green]")
