@@ -5,6 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
 
 
 class LateralModule:
@@ -59,6 +60,9 @@ class LateralModule:
         """SMB/RPC-based lateral movement"""
         console.print("\n[bold cyan]SMB/RPC-based Lateral Movement[/bold cyan]\n")
         
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
         console.print("[bold]Administrative Share Access:[/bold]")
         smb_cmds = [
             "net use \\\\<target>\\C$ /user:<domain>\\<user> <password>",
@@ -105,10 +109,40 @@ class LateralModule:
         console.print("  • Use built-in Windows binaries (sc, wmic, schtasks)")
         console.print("  • Prefer service creation over direct process execution")
         console.print("  • Clean up artifacts after execution")
+        
+        if is_live or Confirm.ask("\n[bold]Execute SMB/RPC command?[/bold]", default=False):
+            target = Prompt.ask("Target hostname or IP")
+            valid, error = validate_target(target, lab_use)
+            if not valid:
+                console.print(f"[bold red]{error}[/bold red]")
+                return
+            
+            action = Prompt.ask("Action", choices=["test_share", "list_shares", "copy_file", "create_service"], default="test_share")
+            
+            if action == "test_share":
+                cmd = f"net use \\\\{target}\\C$"
+                console.print(f"\n[yellow]Executing:[/yellow] {cmd}\n")
+                exit_code, stdout, stderr = execute_cmd(cmd, lab_use=lab_use)
+                if exit_code == 0:
+                    console.print(f"[green]Success:[/green] {stdout}")
+                else:
+                    console.print(f"[red]Error:[/red] {stderr}")
+            
+            elif action == "list_shares":
+                cmd = f"net view \\\\{target}"
+                console.print(f"\n[yellow]Executing:[/yellow] {cmd}\n")
+                exit_code, stdout, stderr = execute_cmd(cmd, lab_use=lab_use)
+                if exit_code == 0:
+                    console.print(f"[green]Shares:[/green]\n{stdout}")
+                else:
+                    console.print(f"[red]Error:[/red] {stderr}")
     
     def _winrm_psremoting(self, console: Console, session_data: dict):
         """WinRM / PowerShell Remoting"""
         console.print("\n[bold cyan]WinRM / PowerShell Remoting[/bold cyan]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
         
         console.print("[bold]WinRM Configuration Check:[/bold]")
         config_cmds = [
@@ -154,10 +188,38 @@ class LateralModule:
         console.print("  • WinRM uses HTTPS (5986) by default - encrypted")
         console.print("  • Resembles legitimate admin automation")
         console.print("  • Can execute scripts without dropping files")
+        
+        if is_live or Confirm.ask("\n[bold]Test WinRM connectivity?[/bold]", default=False):
+            target = Prompt.ask("Target hostname or IP")
+            valid, error = validate_target(target, lab_use)
+            if not valid:
+                console.print(f"[bold red]{error}[/bold red]")
+                return
+            
+            ps_cmd = f"Test-WSMan -ComputerName {target}"
+            console.print(f"\n[yellow]Executing:[/yellow] {ps_cmd}\n")
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]WinRM available:[/green]\n{stdout}")
+            else:
+                console.print(f"[red]WinRM not available or error:[/red] {stderr}")
+            
+            if Confirm.ask("\n[bold]Execute remote command?[/bold]", default=False):
+                remote_cmd = Prompt.ask("Command to execute", default="whoami")
+                ps_cmd = f"Invoke-Command -ComputerName {target} -ScriptBlock {{ {remote_cmd} }}"
+                console.print(f"\n[yellow]Executing:[/yellow] {ps_cmd}\n")
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+                if exit_code == 0:
+                    console.print(f"[green]Output:[/green]\n{stdout}")
+                else:
+                    console.print(f"[red]Error:[/red] {stderr}")
     
     def _wmi_execution(self, console: Console, session_data: dict):
         """WMI-based execution"""
         console.print("\n[bold cyan]WMI-based Execution[/bold cyan]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
         
         console.print("[bold]WMI Query:[/bold]")
         query_cmds = [
@@ -194,6 +256,29 @@ class LateralModule:
         console.print("  • WMI operates over ports commonly allowed for management")
         console.print("  • Useful for inventorying hosts remotely")
         console.print("  • Can be used where other remoting mechanisms unavailable")
+        
+        if is_live or Confirm.ask("\n[bold]Execute WMI query?[/bold]", default=False):
+            target = Prompt.ask("Target hostname or IP")
+            valid, error = validate_target(target, lab_use)
+            if not valid:
+                console.print(f"[bold red]{error}[/bold red]")
+                return
+            
+            query_type = Prompt.ask("Query type", choices=["process", "service", "os"], default="process")
+            
+            if query_type == "process":
+                ps_cmd = f"Get-WmiObject -Class Win32_Process -ComputerName {target} | Select-Object -First 10 ProcessName, ProcessId, CommandLine"
+            elif query_type == "service":
+                ps_cmd = f"Get-WmiObject -Class Win32_Service -ComputerName {target} | Select-Object -First 10 Name, State, StartName"
+            else:
+                ps_cmd = f"Get-WmiObject -Class Win32_OperatingSystem -ComputerName {target} | Select-Object Name, Version, TotalVisibleMemorySize"
+            
+            console.print(f"\n[yellow]Executing:[/yellow] {ps_cmd}\n")
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]WMI Query Result:[/green]\n{stdout}")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
     
     def _rdp_pivoting(self, console: Console, session_data: dict):
         """RDP-based pivoting"""

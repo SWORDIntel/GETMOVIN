@@ -5,6 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
 
 
 class FootholdModule:
@@ -53,7 +54,9 @@ class FootholdModule:
         """Assess current identity and privileges"""
         console.print("\n[bold cyan]Identity & Privilege Assessment[/bold cyan]\n")
         
-        # Simulate commands
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
         commands = [
             ("whoami", "Current user identity"),
             ("whoami /groups", "Group memberships"),
@@ -72,22 +75,55 @@ class FootholdModule:
         console.print(table)
         console.print()
         
-        if Confirm.ask("[bold]Execute identity check?[/bold]", default=False):
-            console.print("\n[yellow]Simulating execution...[/yellow]")
-            console.print("[dim]whoami:[/dim] WIN-SRV-01\\svc_ssh")
-            console.print("[dim]Groups:[/dim] Domain Users, Local Administrators")
-            console.print("[dim]Privileges:[/dim] SeDebugPrivilege, SeImpersonatePrivilege")
+        if is_live or Confirm.ask("[bold]Execute identity check?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing commands...[/yellow]\n")
             
-            session_data['identity'] = {
-                'user': 'WIN-SRV-01\\svc_ssh',
-                'groups': ['Domain Users', 'Local Administrators'],
-                'privileges': ['SeDebugPrivilege', 'SeImpersonatePrivilege']
-            }
+            identity_data = {}
+            
+            # Execute whoami
+            exit_code, stdout, stderr = execute_cmd("whoami", lab_use=lab_use)
+            if exit_code == 0:
+                user = stdout.strip()
+                console.print(f"[green]whoami:[/green] {user}")
+                identity_data['user'] = user
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Execute whoami /groups
+            exit_code, stdout, stderr = execute_cmd("whoami /groups", lab_use=lab_use)
+            if exit_code == 0:
+                groups = [line.strip() for line in stdout.split('\n') if 'Group Name' in line or 'S-1-5' in line]
+                console.print(f"[green]Groups:[/green] {len(groups)} groups found")
+                identity_data['groups'] = groups[:10]  # Store first 10
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Execute whoami /priv
+            exit_code, stdout, stderr = execute_cmd("whoami /priv", lab_use=lab_use)
+            if exit_code == 0:
+                privs = [line.strip() for line in stdout.split('\n') if 'Se' in line]
+                console.print(f"[green]Privileges:[/green] {len(privs)} privileges found")
+                identity_data['privileges'] = privs[:10]  # Store first 10
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Execute net localgroup administrators
+            exit_code, stdout, stderr = execute_cmd("net localgroup administrators", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Local Administrators:[/green] Retrieved")
+                identity_data['local_admins'] = stdout
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            session_data['identity'] = identity_data
             console.print("\n[green]✓ Identity data stored in session[/green]")
     
     def _assess_host_role(self, console: Console, session_data: dict):
         """Assess host role and classification"""
         console.print("\n[bold cyan]Host Role Classification[/bold cyan]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
         
         checks = [
             ("Get-WindowsFeature | Where-Object Installed", "Installed server roles"),
@@ -119,11 +155,51 @@ class FootholdModule:
         for indicator in indicators:
             console.print(f"  • {indicator}")
         
-        if Confirm.ask("\n[bold]Classify host role?[/bold]", default=False):
-            role = Prompt.ask("Host role", choices=[
-                "Domain Controller", "File Server", "Web Server", 
-                "Database Server", "Management Server", "Workstation", "Other"
-            ], default="Management Server")
+        if is_live or Confirm.ask("\n[bold]Execute host role checks?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing checks...[/yellow]\n")
+            
+            # Check listening ports
+            exit_code, stdout, stderr = execute_cmd("netstat -ano | findstr LISTENING", lab_use=lab_use)
+            if exit_code == 0:
+                ports = {}
+                for line in stdout.split('\n'):
+                    if 'LISTENING' in line:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            addr = parts[1]
+                            if ':' in addr:
+                                port = addr.split(':')[-1]
+                                ports[port] = ports.get(port, 0) + 1
+                
+                console.print(f"[green]Listening ports found:[/green] {len(ports)} unique ports")
+                session_data['listening_ports'] = list(ports.keys())[:20]  # Store first 20
+            
+            # Check running services
+            ps_cmd = "Get-Service | Where-Object Status -eq 'Running' | Select-Object -First 20 Name, DisplayName"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Running services:[/green] Retrieved")
+            
+            # Auto-classify based on ports
+            role = "Unknown"
+            if 'listening_ports' in session_data:
+                ports = session_data['listening_ports']
+                if '389' in ports or '88' in ports or '53' in ports:
+                    role = "Domain Controller"
+                elif '445' in ports:
+                    role = "File Server"
+                elif '80' in ports or '443' in ports:
+                    role = "Web Server"
+                elif '1433' in ports or '3306' in ports or '5432' in ports:
+                    role = "Database Server"
+                elif '5985' in ports or '5986' in ports or '3389' in ports:
+                    role = "Management Server"
+            
+            if not is_live:
+                role = Prompt.ask("Host role", choices=[
+                    "Domain Controller", "File Server", "Web Server", 
+                    "Database Server", "Management Server", "Workstation", "Other"
+                ], default=role)
             
             session_data['host_role'] = role
             console.print(f"\n[green]✓ Host classified as: {role}[/green]")
@@ -131,6 +207,10 @@ class FootholdModule:
     def _assess_network_visibility(self, console: Console, session_data: dict):
         """Assess network visibility from foothold"""
         console.print("\n[bold cyan]Network Visibility Assessment[/bold cyan]\n")
+        
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        is_local_ip = session_data.get('is_local_ip', lambda x: False)
         
         commands = [
             ("ipconfig /all", "Network configuration"),
@@ -162,17 +242,59 @@ class FootholdModule:
         for target in targets:
             console.print(f"  • {target}")
         
-        if Confirm.ask("\n[bold]Perform network scan?[/bold]", default=False):
-            console.print("\n[yellow]Simulating network discovery...[/yellow]")
-            console.print("[dim]Subnet:[/dim] 192.168.1.0/24")
-            console.print("[dim]DC Found:[/dim] 192.168.1.10 (LDAP, Kerberos)")
-            console.print("[dim]File Server:[/dim] 192.168.1.20 (SMB)")
-            console.print("[dim]Management:[/dim] 192.168.1.30 (WinRM)")
+        if is_live or Confirm.ask("\n[bold]Perform network discovery?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing network discovery...[/yellow]\n")
             
-            session_data['network'] = {
-                'subnet': '192.168.1.0/24',
-                'targets': ['192.168.1.10', '192.168.1.20', '192.168.1.30']
-            }
+            network_data = {}
+            
+            # Get network configuration
+            exit_code, stdout, stderr = execute_cmd("ipconfig /all", lab_use=lab_use)
+            if exit_code == 0:
+                console.print("[green]Network configuration:[/green] Retrieved")
+                # Extract IP addresses
+                import re
+                ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+                ips = re.findall(ip_pattern, stdout)
+                local_ips = [ip for ip in ips if is_local_ip(ip)]
+                if local_ips:
+                    network_data['local_ips'] = list(set(local_ips))
+                    console.print(f"[green]Local IPs found:[/green] {', '.join(network_data['local_ips'][:5])}")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Get routing table
+            exit_code, stdout, stderr = execute_cmd("route print", lab_use=lab_use)
+            if exit_code == 0:
+                console.print("[green]Routing table:[/green] Retrieved")
+                # Extract subnets
+                import re
+                subnet_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+                subnets = re.findall(subnet_pattern, stdout)
+                if subnets:
+                    network_data['subnets'] = subnets[:5]
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Get ARP cache
+            exit_code, stdout, stderr = execute_cmd("arp -a", lab_use=lab_use)
+            if exit_code == 0:
+                console.print("[green]ARP cache:[/green] Retrieved")
+                # Extract IPs from ARP
+                import re
+                ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+                arp_ips = re.findall(ip_pattern, stdout)
+                local_arp_ips = [ip for ip in arp_ips if is_local_ip(ip)]
+                if local_arp_ips:
+                    network_data['arp_targets'] = list(set(local_arp_ips))[:10]
+                    console.print(f"[green]ARP targets:[/green] {len(network_data['arp_targets'])} local IPs")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # If LAB_USE=1, only show local IPs
+            if lab_use == 1:
+                console.print("\n[yellow]LAB MODE: Only local IP ranges shown[/yellow]")
+            
+            session_data['network'] = network_data
             console.print("\n[green]✓ Network data stored[/green]")
     
     def _generate_report(self, console: Console, session_data: dict):

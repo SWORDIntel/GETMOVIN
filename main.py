@@ -5,6 +5,7 @@ Red Team / Threat Modeling Tool
 """
 
 import sys
+import ipaddress
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
@@ -24,6 +25,26 @@ from modules.opsec import OPSECModule
 
 console = Console()
 
+# LAB_USE flag: Set to 1 to limit operations to local IP ranges only
+LAB_USE = 1
+
+# Local IP ranges (RFC 1918 + loopback)
+LOCAL_IP_RANGES = [
+    ipaddress.ip_network('10.0.0.0/8'),
+    ipaddress.ip_network('172.16.0.0/12'),
+    ipaddress.ip_network('192.168.0.0/16'),
+    ipaddress.ip_network('127.0.0.0/8'),
+]
+
+
+def is_local_ip(ip_str):
+    """Check if IP address is in local ranges"""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return any(ip in network for network in LOCAL_IP_RANGES)
+    except ValueError:
+        return False
+
 
 class LateralMovementTUI:
     """Main TUI application for Windows lateral movement simulation"""
@@ -38,7 +59,10 @@ class LateralMovementTUI:
             '5': ('Consolidation & Dominance', ConsolidationModule()),
             '6': ('OPSEC Considerations', OPSECModule()),
         }
-        self.session_data = {}
+        self.session_data = {
+            'LAB_USE': LAB_USE,
+            'is_local_ip': is_local_ip,
+        }
         
     def show_banner(self):
         """Display application banner"""
@@ -47,12 +71,14 @@ class LateralMovementTUI:
         banner.append("\n", style="bold cyan")
         banner.append("Red Team / Threat Modeling TUI", style="dim white")
         
+        lab_status = "[bold yellow]LAB MODE[/bold yellow] - Local IP ranges only" if LAB_USE == 1 else "[bold green]LIVE MODE[/bold green] - Full execution enabled"
+        
         panel = Panel(
             banner,
             box=box.DOUBLE,
             border_style="cyan",
             title="[bold red]⚠ RED TEAM TOOL ⚠[/bold red]",
-            subtitle="[dim]For authorized testing only[/dim]"
+            subtitle=f"[dim]For authorized testing only | {lab_status}[/dim]"
         )
         self.console.print(panel)
         self.console.print()

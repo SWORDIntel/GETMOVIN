@@ -5,6 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
+from modules.utils import execute_command, execute_powershell, execute_cmd
 
 
 class OrientationModule:
@@ -56,6 +57,9 @@ class OrientationModule:
         """Map identities and privileges"""
         console.print("\n[bold cyan]Identity & Privilege Mapping[/bold cyan]\n")
         
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
         commands = [
             ("whoami /all", "Complete identity information"),
             ("net localgroup", "All local groups"),
@@ -87,6 +91,23 @@ class OrientationModule:
         
         for q in questions:
             console.print(f"  • {q}")
+        
+        if is_live or Confirm.ask("\n[bold]Execute identity mapping?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing commands...[/yellow]\n")
+            
+            # Execute whoami /all
+            exit_code, stdout, stderr = execute_cmd("whoami /all", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Identity Information:[/green]\n{stdout[:500]}...")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Execute net localgroup administrators
+            exit_code, stdout, stderr = execute_cmd("net localgroup administrators", lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"\n[green]Local Administrators:[/green]\n{stdout}")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
     
     def _host_classification(self, console: Console, session_data: dict):
         """Classify host role"""
@@ -188,6 +209,9 @@ class OrientationModule:
         """Discover service accounts"""
         console.print("\n[bold cyan]Service Account Discovery[/bold cyan]\n")
         
+        lab_use = session_data.get('LAB_USE', 0)
+        is_live = lab_use != 1
+        
         commands = [
             ("Get-WmiObject Win32_Service | Select-Object Name, StartName, PathName", "All services with accounts"),
             ("Get-Service | Get-CimInstance | Select-Object Name, StartName", "Service accounts (CIM)"),
@@ -215,6 +239,16 @@ class OrientationModule:
         
         for target in targets:
             console.print(f"  • {target}")
+        
+        if is_live or Confirm.ask("\n[bold]Discover service accounts?[/bold]", default=is_live):
+            console.print("\n[yellow]Executing discovery...[/yellow]\n")
+            
+            ps_cmd = "Get-WmiObject Win32_Service | Where-Object {$_.StartName -like '*@*'} | Select-Object -First 20 Name, StartName, State"
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            if exit_code == 0:
+                console.print(f"[green]Domain Service Accounts:[/green]\n{stdout}")
+            else:
+                console.print(f"[red]Error:[/red] {stderr}")
     
     def _scheduled_tasks(self, console: Console, session_data: dict):
         """Analyze scheduled tasks"""
