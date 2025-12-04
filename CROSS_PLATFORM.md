@@ -10,15 +10,37 @@ This tool can be **prepared on Linux** and **deployed to Windows** for execution
 
 ## Preparing Package on Linux
 
-### Option 1: Automated Packaging
+### Option 1: Automated Packaging (Recommended)
+
+**Step 1: Download Dependencies (Optional but Recommended)**
+
+Download all dependencies for offline installation:
 
 ```bash
-# Create Windows package
+# Download Windows-compatible dependencies
+python3 download_deps.py --windows
+
+# Or specify Python version and architecture
+python3 download_deps.py --windows --python-version 3.9 --arch amd64
+
+# This creates: offline_deps/ directory with all dependency files
+```
+
+**Step 2: Create Windows Package**
+
+```bash
+# Create Windows package (includes offline_deps/ if it exists)
 python3 package_for_windows.py
 
 # This creates: windows_package/windows-lateral-movement-tui/
 # Transfer this directory to Windows PC
 ```
+
+**Benefits of Offline Dependencies:**
+- ✅ No internet required on Windows PC
+- ✅ Faster installation
+- ✅ Works in air-gapped environments
+- ✅ Reproducible deployments
 
 ### Option 2: Manual Preparation
 
@@ -54,8 +76,18 @@ setup_windows.bat
 This will:
 - Check for Python installation
 - Create virtual environment
-- Install all dependencies
+- **Automatically detect and use offline dependencies** (if `offline_deps/` folder exists)
+- Install all dependencies (from offline package or internet)
 - Set up the tool
+
+**Offline Installation:**
+If `offline_deps/` folder is included in the package, the setup script will automatically use it:
+- No internet connection required
+- Faster installation
+- Works in air-gapped environments
+
+**Online Installation:**
+If `offline_deps/` folder is not included, the setup script will download dependencies from the internet.
 
 ### Step 3: Run on Windows
 

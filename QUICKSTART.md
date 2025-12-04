@@ -120,8 +120,19 @@ python main.py
 
 ### On Linux (Preparation)
 
+**Step 1: Download Dependencies (Optional but Recommended)**
+
 ```bash
-# Create Windows package
+# Download Windows-compatible dependencies for offline installation
+python3 download_deps.py --windows
+
+# This creates: offline_deps/ directory with all dependency files
+```
+
+**Step 2: Create Windows Package**
+
+```bash
+# Create Windows package (automatically includes offline_deps/ if present)
 python3 package_for_windows.py
 
 # Output: windows_package/windows-lateral-movement-tui/
@@ -134,12 +145,17 @@ python3 package_for_windows.py
 REM Navigate to package directory
 cd windows-lateral-movement-tui
 
-REM Run setup script
+REM Run setup script (automatically uses offline_deps/ if available)
 setup_windows.bat
 
 REM Run the tool
 run_windows.bat
 ```
+
+**Offline Installation Benefits:**
+- ✅ No internet required on Windows PC
+- ✅ Faster installation
+- ✅ Works in air-gapped environments
 
 See [CROSS_PLATFORM.md](CROSS_PLATFORM.md) for detailed guide.
 

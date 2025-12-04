@@ -99,7 +99,7 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed quick start guide.
 - **Python 3.8+** (3.9+ recommended)
 - **Windows OS** (primary target) or Linux/Mac (for preparation)
 - **Administrator privileges** (for some operations)
-- **Internet connection** (for initial dependency installation)
+- **Internet connection** (for initial dependency installation, or use offline dependencies)
 
 ### Quick Installation
 
@@ -167,8 +167,24 @@ python main.py
 
 #### On Linux (Preparation)
 
+**Step 1: Download Dependencies (Optional but Recommended)**
+
+Download all dependencies for offline installation on Windows:
+
 ```bash
-# Create Windows package
+# Download Windows-compatible dependencies
+python3 download_deps.py --windows
+
+# Or specify Python version and architecture
+python3 download_deps.py --windows --python-version 3.9 --arch amd64
+
+# This creates: offline_deps/ directory with all dependency files
+```
+
+**Step 2: Create Windows Package**
+
+```bash
+# Create Windows package (automatically includes offline_deps/ if present)
 python3 package_for_windows.py
 
 # Output: windows_package/windows-lateral-movement-tui/
@@ -181,12 +197,24 @@ python3 package_for_windows.py
 # Navigate to package directory
 cd windows-lateral-movement-tui
 
-# Run setup script
+# Run setup script (automatically uses offline_deps/ if available)
 setup_windows.bat
 
 # Run the tool
 run_windows.bat
 ```
+
+**Benefits of Offline Dependencies:**
+- ✅ **No internet required** on Windows PC
+- ✅ **Faster installation** (no download time)
+- ✅ **Works in air-gapped environments**
+- ✅ **Reproducible deployments** (same dependency versions)
+
+**How It Works:**
+- The `download_deps.py` script downloads all Python packages (wheels and source distributions) to `offline_deps/`
+- The `package_for_windows.py` script automatically includes `offline_deps/` if it exists
+- The Windows `setup_windows.bat` script automatically detects and uses `offline_deps/` for installation
+- If `offline_deps/` is not found, the setup script falls back to downloading from the internet
 
 See [CROSS_PLATFORM.md](CROSS_PLATFORM.md) for detailed cross-platform guide.
 
@@ -442,6 +470,17 @@ See [docs/remote_guided_relay.md](docs/remote_guided_relay.md) for relay archite
 - **[BOOTSTRAP.md](BOOTSTRAP.md)** - Auto-bootstrap process
 - **[CROSS_PLATFORM.md](CROSS_PLATFORM.md)** - Cross-platform setup
 - **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Project organization
+
+### Utility Scripts
+
+- **`download_deps.py`** - Download dependencies for offline installation
+  ```bash
+  python3 download_deps.py --windows  # Download Windows dependencies
+  ```
+- **`package_for_windows.py`** - Create Windows deployment package
+  ```bash
+  python3 package_for_windows.py  # Creates windows_package/
+  ```
 
 ### Module Documentation
 

@@ -26,6 +26,14 @@ class WindowsPackager:
         """Create portable Windows package"""
         print("[*] Creating Windows package...")
         
+        # Check for offline dependencies
+        deps_dir = self.workspace_root / 'offline_deps'
+        if deps_dir.exists():
+            print(f"[*] Found offline dependencies: {deps_dir}")
+        else:
+            print(f"[!] No offline dependencies found - run 'python3 download_deps.py --windows' first")
+            print(f"[!] Windows setup will download dependencies from internet")
+        
         # Clean and create directories
         if self.package_dir.exists():
             shutil.rmtree(self.package_dir)
@@ -45,6 +53,9 @@ class WindowsPackager:
         
         # Copy optional components
         self._copy_optional_components()
+        
+        # Copy offline dependencies if they exist
+        self._copy_offline_deps()
         
         # Create Windows-specific files
         self._create_windows_files()
@@ -132,6 +143,16 @@ class WindowsPackager:
             shutil.copytree(examples_src, examples_dst)
             print(f"  [✓] Copied examples/")
     
+    def _copy_offline_deps(self):
+        """Copy offline dependencies directory if it exists"""
+        deps_src = self.workspace_root / 'offline_deps'
+        if deps_src.exists() and deps_src.is_dir():
+            deps_dst = self.package_dir / 'offline_deps'
+            shutil.copytree(deps_src, deps_dst)
+            print(f"  [✓] Copied offline_deps/ ({len(list(deps_src.glob('*')))} files)")
+        else:
+            print(f"  [!] offline_deps/ not found - Windows setup will download from internet")
+    
     def _create_windows_files(self):
         """Create Windows-specific files"""
         # Setup batch script
@@ -170,11 +191,30 @@ REM Activate and install dependencies
 echo [*] Installing dependencies...
 call venv\\Scripts\\activate.bat
 pip install --upgrade pip --quiet
-pip install -r requirements.txt --quiet
-if errorlevel 1 (
-    echo [ERROR] Failed to install dependencies
-    pause
-    exit /b 1
+
+REM Check if offline dependencies are available
+if exist "offline_deps\\" (
+    echo [*] Using offline dependencies from offline_deps\\
+    pip install --no-index --find-links offline_deps -r requirements.txt --quiet
+    if errorlevel 1 (
+        echo [WARNING] Offline installation failed, trying online...
+        pip install -r requirements.txt --quiet
+        if errorlevel 1 (
+            echo [ERROR] Failed to install dependencies
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo [+] Dependencies installed from offline package
+    )
+) else (
+    echo [*] Downloading dependencies from internet...
+    pip install -r requirements.txt --quiet
+    if errorlevel 1 (
+        echo [ERROR] Failed to install dependencies
+        pause
+        exit /b 1
+    )
 )
 
 echo.
@@ -339,8 +379,17 @@ python main.py
 - `docs/` - Documentation
 - `config/` - Configuration templates
 - `requirements.txt` - Python dependencies
+- `offline_deps/` - Offline dependencies (if included)
 - `setup_windows.bat` - Windows setup script
 - `run_windows.bat` - Windows launcher script
+
+## Offline Dependencies
+
+If `offline_deps/` folder is included in this package, the setup script will automatically use offline dependencies instead of downloading from the internet. This is useful for:
+- Air-gapped environments
+- Systems without internet access
+- Faster installation
+- Reproducible deployments
 
 ## Support
 
