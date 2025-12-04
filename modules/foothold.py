@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option, is_local_ip
 from modules.loghunter_integration import WindowsMoonwalk
 
 

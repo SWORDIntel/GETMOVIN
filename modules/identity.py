@@ -6,7 +6,7 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.loghunter_integration import WindowsMoonwalk
-from modules.utils import select_menu_option
+from modules.utils import select_menu_option, execute_cmd, execute_powershell
 
 
 class IdentityModule:

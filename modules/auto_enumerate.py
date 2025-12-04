@@ -20,7 +20,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.table import Table
 from rich.prompt import Prompt, Confirm
 from rich import box
-from modules.utils import execute_cmd, execute_powershell, validate_target
+from modules.utils import execute_cmd, execute_powershell, validate_target, is_local_ip
 from modules.loghunter_integration import LogHunter, WindowsMoonwalk
 from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
