@@ -273,35 +273,37 @@ class ComponentDiscovery:
         if not missing_deps:
             return results
         
-        # Map dependency names to pip package names
+        # Map dependency names to pip package names and import names
         pip_packages = {
-            'websockets': 'websockets',
-            'aiohttp': 'aiohttp',
-            'yaml': 'pyyaml',
-            'cryptography': 'cryptography',
+            'websockets': ('websockets', 'websockets'),
+            'aiohttp': ('aiohttp', 'aiohttp'),
+            'yaml': ('pyyaml', 'yaml'),
+            'cryptography': ('cryptography', 'cryptography'),
         }
         
         if interactive:
-            print(f"\n[bold yellow]Missing optional dependencies detected:[/bold yellow]")
-            for dep in missing_deps:
-                print(f"  - {dep}")
-            
             try:
+                from rich.console import Console
                 from rich.prompt import Confirm
+                console = Console()
+                console.print(f"\n[bold yellow]Missing optional dependencies detected:[/bold yellow]")
+                for dep in missing_deps:
+                    console.print(f"  - {dep}")
+                
                 if not Confirm.ask("\n[bold]Install missing dependencies?[/bold]", default=True):
                     return results
             except ImportError:
-                response = input("\nInstall missing dependencies? [Y/n]: ").strip().lower()
+                print(f"\nMissing optional dependencies: {', '.join(missing_deps)}")
+                response = input("Install missing dependencies? [Y/n]: ").strip().lower()
                 if response and response != 'y':
                     return results
         
         # Install missing dependencies
         for dep_name in missing_deps:
-            pip_package = pip_packages.get(dep_name, dep_name)
+            pip_package, import_name = pip_packages.get(dep_name, (dep_name, dep_name))
             try:
-                print(f"[dim]Installing {pip_package}...[/dim]", end='', flush=True)
                 result = subprocess.run(
-                    [sys.executable, '-m', 'pip', 'install', '--quiet', pip_package],
+                    [sys.executable, '-m', 'pip', 'install', '--quiet', '--upgrade', pip_package],
                     capture_output=True,
                     timeout=60,
                     check=False
@@ -310,18 +312,14 @@ class ComponentDiscovery:
                 if result.returncode == 0:
                     # Verify installation
                     try:
-                        __import__(dep_name)
+                        __import__(import_name)
                         results[dep_name] = True
-                        print(f" [green]✓[/green]")
                     except ImportError:
                         results[dep_name] = False
-                        print(f" [red]✗[/red]")
                 else:
                     results[dep_name] = False
-                    print(f" [red]✗[/red]")
             except Exception as e:
                 results[dep_name] = False
-                print(f" [red]✗[/red]")
                 logging.debug(f"Failed to install {dep_name}: {e}")
         
         # Re-discover after installation

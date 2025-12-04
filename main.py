@@ -75,10 +75,9 @@ def is_local_ip(ip_str):
 class LateralMovementTUI:
     """Main TUI application for Windows lateral movement simulation"""
     
-    def __init__(self, preload_requirements: bool = True):
+    def __init__(self):
         self.console = console
-        self.preload_requirements = preload_requirements
-        self.discovered_components = self._discover_components()
+        self.discovered_components = self._discover_and_preload_components()
         self.modules = self._initialize_modules()
         self.session_data = {
             'LAB_USE': LAB_USE,
@@ -88,23 +87,29 @@ class LateralMovementTUI:
             'discovered_components': self.discovered_components,  # Make available to modules
         }
     
-    def _discover_components(self) -> dict:
-        """Discover all available components"""
+    def _discover_and_preload_components(self) -> dict:
+        """Discover all available components and preload requirements automatically"""
         try:
             from modules.discovery import ComponentDiscovery
             
-            # Check if preloading is enabled via environment variable
-            auto_preload = self.preload_requirements or os.getenv('PRELOAD_REQUIREMENTS', '').lower() in ('1', 'true', 'yes')
+            # First discovery pass
+            discovery = ComponentDiscovery(auto_preload=False)
             
-            discovery = ComponentDiscovery(auto_preload=auto_preload)
+            # Check for missing optional dependencies
+            deps = discovery.discovered_components.get('optional_dependencies', {})
+            missing = [k for k, v in deps.items() if not v]
             
-            # If auto_preload is False but we have missing deps, offer to install
-            if not auto_preload:
-                deps = discovery.discovered_components.get('optional_dependencies', {})
-                missing = [k for k, v in deps.items() if not v]
-                if missing:
-                    self.console.print(f"\n[dim yellow]Optional dependencies missing: {', '.join(missing)}[/dim yellow]")
-                    self.console.print("[dim]Set PRELOAD_REQUIREMENTS=1 or use '?' menu to install[/dim]\n")
+            # Auto-preload missing dependencies silently
+            if missing:
+                self.console.print(f"[dim]Preloading optional dependencies: {', '.join(missing)}...[/dim]", end='')
+                results = discovery.preload_requirements(interactive=False)
+                installed = [k for k, v in results.items() if v]
+                if installed:
+                    self.console.print(f" [green]✓[/green]")
+                    # Re-discover after installation
+                    discovery = ComponentDiscovery(auto_preload=False)
+                else:
+                    self.console.print(f" [yellow]⚠[/yellow]")
             
             return discovery.get_summary()
         except Exception as e:
@@ -121,12 +126,19 @@ class LateralMovementTUI:
         }
         
         # Check optional dependencies
-        for dep in ['websockets', 'aiohttp', 'yaml', 'cryptography']:
+        dep_map = {
+            'websockets': 'websockets',
+            'aiohttp': 'aiohttp',
+            'yaml': 'yaml',
+            'cryptography': 'cryptography'
+        }
+        
+        for dep_key, dep_module in dep_map.items():
             try:
-                __import__(dep)
-                components['optional_dependencies'][dep] = True
+                __import__(dep_module)
+                components['optional_dependencies'][dep_key] = True
             except ImportError:
-                components['optional_dependencies'][dep] = False
+                components['optional_dependencies'][dep_key] = False
         
         return components
     
@@ -190,39 +202,8 @@ class LateralMovementTUI:
         )
         self.console.print(panel)
         
-        # Show component discovery on first run
-        if not hasattr(self, '_discovery_shown'):
-            self._show_component_discovery()
-            self._discovery_shown = True
-        
         self.console.print()
     
-    def _show_component_discovery(self):
-        """Show component discovery status"""
-        try:
-            from modules.discovery import ComponentDiscovery
-            discovery = ComponentDiscovery()
-            
-            # Show brief status
-            pe5_avail = self.discovered_components.get('pe5_framework', {}).get('available', False)
-            relay_avail = self.discovered_components.get('relay_service', {}).get('available', False)
-            deps = self.discovered_components.get('optional_dependencies', {})
-            
-            if pe5_avail or relay_avail or any(deps.values()):
-                status_text = Text()
-                status_text.append("Component Status: ", style="dim")
-                if pe5_avail:
-                    status_text.append("PE5✓ ", style="green")
-                if relay_avail:
-                    status_text.append("Relay✓ ", style="green")
-                if deps.get('websockets'):
-                    status_text.append("WebSockets✓ ", style="dim green")
-                if deps.get('yaml'):
-                    status_text.append("YAML✓ ", style="dim green")
-                
-                self.console.print(Panel(status_text, border_style="dim", box=box.SIMPLE))
-        except Exception:
-            pass  # Silently fail if discovery fails
         
     def show_main_menu(self):
         """Display main menu"""
