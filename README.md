@@ -27,6 +27,9 @@ A unified Text User Interface (TUI) for Windows lateral movement simulation, des
    - TTPs: Defense evasion, log clearing, masquerading
 7. **LLM Remote Agent**: Self-coding execution system with binary protocol
    - Features: Remote command execution, code generation, binary protocol communication
+8. **MADCert Certificate Generation**: Generate valid certificates for AD environments
+   - Features: CA, server, client, and code signing certificate generation
+   - Integration: Certificate-based authentication and code signing
 
 ## Installation
 
