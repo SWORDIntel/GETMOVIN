@@ -343,21 +343,20 @@ class MADCertModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Find MADCert Installation")
-            table.add_row("2", "Generate CA Certificate")
-            table.add_row("3", "Generate Server Certificate")
-            table.add_row("4", "Generate Client Certificate")
-            table.add_row("5", "Generate Code Signing Certificate")
-            table.add_row("6", "List Generated Certificates")
-            table.add_row("7", "Export Certificate")
-            table.add_row("8", "Certificate Usage Examples")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Find MADCert Installation'},
+                {'key': '2', 'label': 'Generate CA Certificate'},
+                {'key': '3', 'label': 'Generate Server Certificate'},
+                {'key': '4', 'label': 'Generate Client Certificate'},
+                {'key': '5', 'label': 'Generate Code Signing Certificate'},
+                {'key': '6', 'label': 'List Generated Certificates'},
+                {'key': '7', 'label': 'Export Certificate'},
+                {'key': '8', 'label': 'Certificate Usage Examples'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

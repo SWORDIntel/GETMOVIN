@@ -20,7 +20,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
-from modules.utils import execute_cmd, execute_powershell
+from modules.utils import execute_cmd, execute_powershell, select_menu_option
 
 
 class LogHunter:
@@ -1036,19 +1036,18 @@ class LogHunterModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Find LogHunter Installation")
-            table.add_row("2", "Hunt Credential Access Events")
-            table.add_row("3", "Hunt Lateral Movement Indicators")
-            table.add_row("4", "Hunt Privilege Escalation Events")
-            table.add_row("5", "Custom Query")
-            table.add_row("6", "Export Logs")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Find LogHunter Installation'},
+                {'key': '2', 'label': 'Hunt Credential Access Events'},
+                {'key': '3', 'label': 'Hunt Lateral Movement Indicators'},
+                {'key': '4', 'label': 'Hunt Privilege Escalation Events'},
+                {'key': '5', 'label': 'Custom Query'},
+                {'key': '6', 'label': 'Export Logs'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break
@@ -1233,25 +1232,24 @@ class MoonwalkModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Clear Event Logs (wevtutil)")
-            table.add_row("2", "Clear PowerShell History")
-            table.add_row("3", "Clear Command History")
-            table.add_row("4", "Clear Registry Traces")
-            table.add_row("5", "Clear Prefetch Files")
-            table.add_row("6", "Clear Recent Files & Jump Lists")
-            table.add_row("7", "Clear Temp Files")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("8", "Clear Browser History")
-            table.add_row("9", "Clear Windows Defender Logs")
-            table.add_row("10", "Clear Windows Artifacts (Thumbnails, WER, etc.)")
-            table.add_row("11", "Clear Application Compatibility Cache")
-            table.add_row("12", "Full Cleanup (Windows Moonwalk)")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Clear Event Logs (wevtutil)'},
+                {'key': '2', 'label': 'Clear PowerShell History'},
+                {'key': '3', 'label': 'Clear Command History'},
+                {'key': '4', 'label': 'Clear Registry Traces'},
+                {'key': '5', 'label': 'Clear Prefetch Files'},
+                {'key': '6', 'label': 'Clear Recent Files & Jump Lists'},
+                {'key': '7', 'label': 'Clear Temp Files'},
+                {'key': '8', 'label': 'Clear Browser History'},
+                {'key': '9', 'label': 'Clear Windows Defender Logs'},
+                {'key': '10', 'label': 'Clear Windows Artifacts (Thumbnails, WER, etc.)'},
+                {'key': '11', 'label': 'Clear Application Compatibility Cache'},
+                {'key': '12', 'label': 'Full Cleanup (Windows Moonwalk)'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break

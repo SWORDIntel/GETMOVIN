@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.text import Text
 from rich.layout import Layout
 from rich.columns import Columns
-from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option
 from modules.loghunter_integration import WindowsMoonwalk
 from modules.pe5_utils import PE5Utils
 import os
@@ -108,9 +108,13 @@ class PE5SystemEscalationModule:
             console.print(table)
             console.print()
             
-            choice = Prompt.ask(
+            # Create menu options for navigation
+            menu_options = [{'key': opt, 'label': func} for opt, func, desc, ttp in functions]
+            
+            choice = select_menu_option(
+                console,
+                menu_options,
                 "[bold cyan]Select function[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'h', 'H', 'help', 'HELP', '?'],
                 default='0'
             )
             
@@ -118,15 +122,18 @@ class PE5SystemEscalationModule:
             choice = choice.lower()
             if choice in ['h', 'help']:
                 choice = 'h'
-            elif choice == '?' and hasattr(self, '_show_module_guide'):
-                # Check if guide was already shown
-                pass
+            elif choice in ['g', 'guide']:
+                choice = 'g'
+            elif choice == '?':
+                choice = '?'
             
             if choice == '0':
                 break
             elif choice == 'h':
                 self._ai_guidance(console, session_data)
-            elif choice == '?' and not hasattr(self, '_show_module_guide'):
+            elif choice == 'g':
+                self._show_module_guide(console)
+            elif choice == '?':
                 self._quick_reference(console, session_data)
             elif choice == '1':
                 self._pe5_mechanism(console, session_data)

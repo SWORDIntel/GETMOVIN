@@ -509,23 +509,22 @@ class LOLBinsModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            table.add_row("1", "Search LOLBins")
-            table.add_row("2", "Browse by Category")
-            table.add_row("3", "Execution LOLBins")
-            table.add_row("4", "Lateral Movement LOLBins")
-            table.add_row("5", "Credential Access LOLBins")
-            table.add_row("6", "Discovery LOLBins")
-            table.add_row("7", "Persistence LOLBins")
-            table.add_row("8", "Defense Evasion LOLBins")
-            table.add_row("9", "Collection LOLBins")
-            table.add_row("10", "Build Command Dynamically")
-            table.add_row("?", "Module Guide - Usage instructions and TTPs")
-            table.add_row("0", "Return to main menu")
+            menu_options = [
+                {'key': '1', 'label': 'Search LOLBins'},
+                {'key': '2', 'label': 'Browse by Category'},
+                {'key': '3', 'label': 'Execution LOLBins'},
+                {'key': '4', 'label': 'Lateral Movement LOLBins'},
+                {'key': '5', 'label': 'Credential Access LOLBins'},
+                {'key': '6', 'label': 'Discovery LOLBins'},
+                {'key': '7', 'label': 'Persistence LOLBins'},
+                {'key': '8', 'label': 'Defense Evasion LOLBins'},
+                {'key': '9', 'label': 'Collection LOLBins'},
+                {'key': '10', 'label': 'Build Command Dynamically'},
+                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
+                {'key': '0', 'label': 'Return to main menu'},
+            ]
             
-            console.print(table)
-            console.print()
-            
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '?'], default='0')
+            choice = select_menu_option(console, menu_options, "Select function", default='0')
             
             if choice == '0':
                 break
