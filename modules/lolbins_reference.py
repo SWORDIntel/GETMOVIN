@@ -17,6 +17,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.text import Text
+from modules.utils import select_menu_option
 
 
 class LOLBinsDatabase:

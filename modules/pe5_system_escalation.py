@@ -99,6 +99,7 @@ class PE5SystemEscalationModule:
                 ("0", "Return to main menu", "Exit PE5 module", "")
             ]
             
+            # Display the enhanced table with descriptions
             for opt, func, desc, ttp in functions:
                 if opt in ["h", "?", "g"]:
                     table.add_row(f"[bold]{opt}[/bold]", f"[bold cyan]{func}[/bold cyan]", desc, ttp)
@@ -108,9 +109,10 @@ class PE5SystemEscalationModule:
             console.print(table)
             console.print()
             
-            # Create menu options for navigation
+            # Create menu options for navigation (simplified labels for navigation menu)
             menu_options = [{'key': opt, 'label': func} for opt, func, desc, ttp in functions]
             
+            # Use select_menu_option for navigation (it will show a simplified interactive menu)
             choice = select_menu_option(
                 console,
                 menu_options,
@@ -157,7 +159,7 @@ class PE5SystemEscalationModule:
                 self._generate_report(console, session_data)
             
             # Offer help after each function
-            if choice not in ['0', 'h', '?']:
+            if choice not in ['0', 'h', '?', 'g']:
                 if Confirm.ask("\n[bold cyan]Need help with this function? (AI guidance)[/bold cyan]", default=False):
                     self._contextual_help(console, session_data, choice)
                 
