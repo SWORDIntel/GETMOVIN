@@ -13,8 +13,15 @@ import json
 import logging
 import sys
 from pathlib import Path
-from aiohttp import web
 from typing import Optional
+
+# Check for aiohttp availability
+try:
+    from aiohttp import web
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+    web = None
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))

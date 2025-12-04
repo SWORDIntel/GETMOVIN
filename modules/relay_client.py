@@ -21,9 +21,18 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
-import websockets
-from websockets.client import WebSocketClientProtocol
-from websockets.exceptions import ConnectionClosed, ConnectionClosedError
+# Check for websockets availability
+try:
+    import websockets
+    from websockets.client import WebSocketClientProtocol
+    from websockets.exceptions import ConnectionClosed, ConnectionClosedError
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    WEBSOCKETS_AVAILABLE = False
+    websockets = None
+    WebSocketClientProtocol = None
+    ConnectionClosed = Exception
+    ConnectionClosedError = Exception
 
 # Import TLS extensions for command channel
 try:
