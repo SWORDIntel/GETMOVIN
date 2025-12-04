@@ -1,0 +1,19 @@
+gantt
+    title Attack Timeline
+    dateFormat X
+    axisFormat %s
+    section Initial Access
+    Foothold Establishment    :done, foothold, 0, 1
+    section Discovery
+    Local Orientation         :done, orient, 1, 2
+    Network Discovery         :done, network, 2, 3
+    section Credential Access
+    Credential Harvesting    :done, creds, 3, 4
+    section Lateral Movement
+    Lateral Movement         :done, lateral, 4, 6
+    section Privilege Escalation
+    PE5 Escalation          :active, pe, 6, 7
+    section Persistence
+    Persistence Setup        :done, persist, 7, 8
+    section Defense Evasion
+    Log Clearing            :active, cleanup, 8, 9

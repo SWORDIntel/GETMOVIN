@@ -1,0 +1,10 @@
+graph TD
+    A[Current: Administrator<br/>Elevated]
+    style A fill:#4ecdc4
+    A --> B[PE5 Framework<br/>Available<br/>T1068, T1134]
+    B --> C[Windows Compatible<br/>Token Offset Available]
+    C --> D[Kernel-Level<br/>Token Manipulation<br/>T1134.001]
+    D --> E[SYSTEM Privileges<br/>T1068]
+    style E fill:#95e1d3
+    A --> RESULT[No Escalation<br/>Attempted]
+    style RESULT fill:#ffe66d
