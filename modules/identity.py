@@ -59,9 +59,9 @@ class IdentityModule:
             console.print()
     
     def _local_credentials(self, console: Console, session_data: dict):
-        """Explore local credential sources - APT-41 TTP: Credential Access"""
+        """Explore local credential sources"""
         console.print("\n[bold cyan]Local Credential Sources[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1003.001 (OS Credential Dumping: LSASS), T1003.002 (Security Account Manager)[/dim]\n")
+        console.print("[dim]TTP: T1003.001 (OS Credential Dumping: LSASS Memory), T1003.002 (Security Account Manager)[/dim]\n")
         
         sources = {
             "Windows Credential Manager": [
@@ -259,7 +259,8 @@ class IdentityModule:
     
     def _tokens_tickets(self, console: Console, session_data: dict):
         """Extract tokens and tickets"""
-        console.print("\n[bold cyan]Token & Ticket Extraction[/bold cyan]\n")
+        console.print("\n[bold cyan]Token & Ticket Extraction[/bold cyan]")
+        console.print("[dim]TTP: T1550.003 (Pass-the-Ticket), T1550.002 (Pass-the-Hash)[/dim]\n")
         
         methods = {
             "Token Manipulation": [
@@ -296,8 +297,15 @@ class IdentityModule:
                 console.print(f"  • {tool}")
             console.print()
         
-        console.print("[bold]APT-41 Credential Dumping Techniques:[/bold]")
-        apt41_methods = [
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1550.002 (Pass-the-Hash): Reuse NTLM hashes for authentication")
+        console.print("  • T1550.003 (Pass-the-Ticket): Reuse Kerberos tickets")
+        console.print("  • T1550.001 (Application Access Token): Token manipulation")
+        console.print("  • Enables lateral movement without cleartext passwords")
+        console.print("  • Use with T1021 (Remote Services) for lateral movement")
+        
+        console.print("\n[bold]Credential Extraction Methods:[/bold]")
+        extraction_methods = [
             "Mimikatz for LSASS memory dumping",
             "Procdump + Mimikatz offline analysis",
             "Task Manager → Create dump file",
@@ -305,35 +313,35 @@ class IdentityModule:
             "WDigest credential extraction"
         ]
         
-        for method in apt41_methods:
+        for method in extraction_methods:
             console.print(f"  • [yellow]{method}[/yellow]")
         
         console.print("\n[bold]OPSEC Note:[/bold]")
-        console.print("  • APT-41 uses legitimate tools when possible")
+        console.print("  • Use legitimate tools when possible")
         console.print("  • Prefer token manipulation over credential extraction when possible")
         console.print("  • Use built-in Windows mechanisms (runas, etc.)")
         console.print("  • Minimize use of external tools")
     
     def _lsass_dumping(self, console: Console, session_data: dict):
-        """LSASS Memory Dumping - APT-41 TTP: Credential Access"""
+        """LSASS Memory Dumping"""
         console.print("\n[bold cyan]LSASS Memory Dumping[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1003.001 (OS Credential Dumping: LSASS Memory)[/dim]\n")
+        console.print("[dim]TTP: T1003.001 (OS Credential Dumping: LSASS Memory), T1059.001 (PowerShell)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
         
-        console.print("[bold]APT-41 LSASS Dumping Methods:[/bold]")
+        console.print("[bold]T1003.001 LSASS Dumping Methods:[/bold]")
         methods = {
             "Procdump Method": [
                 "procdump.exe -accepteula -ma lsass.exe lsass.dmp",
                 "Download dump file",
-                "Analyze offline with Mimikatz",
+                "Analyze offline with Mimikatz/PowerShell",
                 "Less likely to trigger alerts"
             ],
             "Task Manager Method": [
                 "Open Task Manager",
                 "Right-click lsass.exe → Create dump file",
-                "Analyze dump with Mimikatz",
+                "Analyze dump with Mimikatz/PowerShell",
                 "Native Windows tool"
             ],
             "Rundll32 Method": [
@@ -341,6 +349,12 @@ class IdentityModule:
                 "Built-in Windows DLL",
                 "No external tools required",
                 "Less suspicious"
+            ],
+            "PowerShell (T1059.001)": [
+                "Invoke-Mimikatz (PowerShell script)",
+                "LSASS readers via PowerShell",
+                "In-memory execution",
+                "No file drops required"
             ],
             "Mimikatz Direct": [
                 "sekurlsa::logonpasswords",
@@ -356,7 +370,12 @@ class IdentityModule:
                 console.print(f"  • {step}")
             console.print()
         
-        console.print("[bold]APT-41 OPSEC Considerations:[/bold]")
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1003.001: Extract credentials from LSASS memory")
+        console.print("  • T1059.001: Use PowerShell for credential extraction scripts")
+        console.print("  • Credentials enable T1078 (Valid Accounts) and T1550 (Alternate Auth Material)")
+        
+        console.print("\n[bold]OPSEC Considerations:[/bold]")
         opsec = [
             "Use legitimate tools (procdump, taskmgr) when possible",
             "Dump to disk and analyze offline",

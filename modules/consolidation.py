@@ -152,9 +152,9 @@ class ConsolidationModule:
             console.print(f"  • {cmd}")
     
     def _persistence(self, console: Console, session_data: dict):
-        """Persistence mechanisms - APT-41 TTP: Persistence"""
+        """Persistence mechanisms"""
         console.print("\n[bold cyan]Persistence Mechanisms[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1053.005 (Scheduled Task), T1543.003 (Create/Modify System Process: Windows Service)[/dim]\n")
+        console.print("[dim]TTP: T1053.005 (Scheduled Task), T1543.003 (Windows Service), T1053.003 (WMI)[/dim]\n")
         
         persistence_methods = {
             "Scheduled Tasks": [
@@ -200,16 +200,22 @@ class ConsolidationModule:
                 console.print(f"  • {cmd}")
             console.print()
         
-        console.print("\n[bold]APT-41 Persistence Preferences:[/bold]")
-        apt41_persist = [
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1053.005: Scheduled tasks for persistence and execution")
+        console.print("  • T1543.003: Windows services for persistence")
+        console.print("  • T1053.003: WMI event subscriptions for persistence")
+        console.print("  • Multiple mechanisms provide redundancy")
+        
+        console.print("\n[bold]Persistence Preferences:[/bold]")
+        persist_methods = [
             "Scheduled tasks with legitimate names",
             "WMI event subscriptions",
-            "DLL sideloading with signed binaries",
             "Services with legitimate names",
+            "DLL sideloading with signed binaries",
             "Registry run keys (less common)"
         ]
         
-        for method in apt41_persist:
+        for method in persist_methods:
             console.print(f"  • [yellow]{method}[/yellow]")
         
         console.print("\n[bold]OPSEC Considerations:[/bold]")
@@ -217,7 +223,7 @@ class ConsolidationModule:
         console.print("  • Use names that resemble legitimate services")
         console.print("  • Avoid excessive modification of endpoints")
         console.print("  • Prefer controlling central control planes")
-        console.print("  • APT-41 uses multiple persistence mechanisms for redundancy")
+        console.print("  • Use multiple persistence mechanisms for redundancy")
     
     def _control_planes(self, console: Console, session_data: dict):
         """Central control planes"""

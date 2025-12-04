@@ -60,21 +60,55 @@ LAB_USE = 1  # Lab mode
 - PowerShell 5.0+
 - Rich library for TUI
 
-## APT-41 TTP Integration
+## MITRE ATT&CK TTP Integration
 
-This tool incorporates known APT-41 (Winnti Group) tactics, techniques, and procedures (TTPs) including:
+This tool is aligned with comprehensive MITRE ATT&CK techniques for Windows lateral movement:
 
-- **Initial Access**: Supply chain attacks, public-facing application exploitation
-- **Execution**: PowerShell, WMI, scheduled tasks, DLL sideloading
-- **Persistence**: Scheduled tasks, WMI event subscriptions, DLL sideloading, services
-- **Privilege Escalation**: Token manipulation, credential dumping
-- **Defense Evasion**: DLL sideloading, process injection, security tool disabling, log clearing
-- **Credential Access**: LSASS memory dumping, credential stores, domain enumeration
-- **Discovery**: Network scanning, system information, security software discovery
-- **Lateral Movement**: SMB/RPC, WinRM, WMI, custom backdoors
-- **Command and Control**: HTTP/HTTPS, SSH tunneling, encrypted channels
+### 1. Access & Authentication
+- **T1078** – Valid Accounts: Use of real domain/local/service accounts (stolen or misused) for lateral auth
+- **T1550** – Use Alternate Authentication Material: Reuse of hashes, Kerberos tickets, tokens instead of cleartext passwords
+  - T1550.002 – Pass-the-Hash (PtH)
+  - T1550.003 – Pass-the-Ticket (PtT)
+  - T1550.001 – Application Access Token
 
-Each module includes APT-41-specific techniques and MITRE ATT&CK technique IDs for reference.
+### 2. Remote Service Channels (Core Movement Rails)
+- **T1021** – Remote Services (family): Moving via authenticated remote service sessions
+  - **T1021.004** – SSH (headless SSH daemon on Windows box)
+  - **T1021.001** – Remote Desktop Protocol (RDP)
+  - **T1021.002** – SMB/Windows Admin Shares (C$, ADMIN$, IPC$)
+  - **T1021.006** – Windows Remote Management (WinRM)
+
+### 3. Discovery to Pick Hosts & Paths
+- **T1018** – Remote System Discovery: Query AD, Net* commands, WMI, PS remoting to enumerate nodes
+- **T1087** – Account Discovery: Find high-value/local admin/DA accounts to pivot with
+  - T1087.001 – Account Discovery: Local Account
+  - T1087.002 – Account Discovery: Domain Account
+- **T1135** – Network Share Discovery: What shares exist where payloads/creds/tools might live
+- **T1082** – System Information Discovery: Understand host role and capabilities
+
+### 4. Credential Access to Enable More Movement
+- **T1003** – OS Credential Dumping
+  - **T1003.001** – LSASS Memory: Classic LSASS scraping, SAM/SECURITY hive abuse
+  - T1003.002 – Security Account Manager
+- **T1059.001** – Command & Scripting Interpreter: PowerShell
+  - Used as execution engine and for credential access helpers (Invoke-Mimikatz, LSASS readers)
+
+### 5. Actual Remote Execution / Tooling
+- **T1569.002** – System Services: Service Execution
+  - PsExec/SC-based remote service abuse for "push binary → run as service" patterns
+- **T1047** – Windows Management Instrumentation (WMI)
+  - WMI for remote process creation, recon, and "living off the land" movement
+- **T1053.005** – Scheduled Task/Job: Scheduled Task
+  - schtasks-based remote or local scheduled execution (persistence + lateral EXE/PS script runs)
+- **T1570** – Lateral Tool Transfer
+  - Copying tooling over SMB/WinRM/SSH shares before execution
+
+### 6. Persistence
+- **T1053.005** – Scheduled Task/Job: Scheduled Task
+- **T1543.003** – Create/Modify System Process: Windows Service
+- **T1053.003** – Scheduled Task/Job: WMI Event Subscription
+
+Each module includes specific MITRE ATT&CK technique IDs and context for reference.
 
 ## Disclaimer
 

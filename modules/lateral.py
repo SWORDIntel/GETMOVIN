@@ -60,9 +60,9 @@ class LateralModule:
             console.print()
     
     def _smb_rpc(self, console: Console, session_data: dict):
-        """SMB/RPC-based lateral movement - APT-41 TTP: Lateral Movement"""
+        """SMB/RPC-based lateral movement"""
         console.print("\n[bold cyan]SMB/RPC-based Lateral Movement[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1021.002 (Remote Services: SMB/Windows Admin Shares)[/dim]\n")
+        console.print("[dim]TTP: T1021.002 (SMB/Windows Admin Shares), T1569.002 (Service Execution), T1570 (Lateral Tool Transfer)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -109,23 +109,28 @@ class LateralModule:
         for cmd in task_cmds:
             console.print(f"  • {cmd}")
         
-        console.print("\n[bold]APT-41 SMB/RPC Techniques:[/bold]")
-        apt41_techniques = [
-            "Use built-in Windows binaries (sc, wmic, schtasks)",
-            "Create services with legitimate names",
-            "Use scheduled tasks for execution",
-            "Copy files via administrative shares",
-            "Execute PowerShell scripts remotely"
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1021.002: Access remote systems via SMB admin shares (C$, ADMIN$, IPC$)")
+        console.print("  • T1569.002: Create/start services remotely for execution")
+        console.print("  • T1570: Transfer tools/payloads over SMB before execution")
+        console.print("  • T1053.005: Use scheduled tasks for remote execution")
+        
+        console.print("\n[bold]Common Patterns:[/bold]")
+        patterns = [
+            "Copy tool to C$ share → Execute via service/task",
+            "Use PsExec-style execution via service creation",
+            "Transfer credentials/tools over SMB",
+            "Use built-in Windows binaries (sc, wmic, schtasks)"
         ]
         
-        for technique in apt41_techniques:
-            console.print(f"  • [yellow]{technique}[/yellow]")
+        for pattern in patterns:
+            console.print(f"  • [yellow]{pattern}[/yellow]")
         
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • Use built-in Windows binaries (sc, wmic, schtasks)")
         console.print("  • Prefer service creation over direct process execution")
         console.print("  • Clean up artifacts after execution")
-        console.print("  • APT-41 uses legitimate admin tools to blend in")
+        console.print("  • Use legitimate admin tools to blend in")
         
         if is_live or Confirm.ask("\n[bold]Execute SMB/RPC command?[/bold]", default=False):
             target = Prompt.ask("Target hostname or IP")
@@ -155,9 +160,9 @@ class LateralModule:
                     console.print(f"[red]Error:[/red] {stderr}")
     
     def _winrm_psremoting(self, console: Console, session_data: dict):
-        """WinRM / PowerShell Remoting - APT-41 TTP: Lateral Movement"""
+        """WinRM / PowerShell Remoting"""
         console.print("\n[bold cyan]WinRM / PowerShell Remoting[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1021.003 (Remote Services: Distributed Component Object Model)[/dim]\n")
+        console.print("[dim]TTP: T1021.006 (Windows Remote Management), T1059.001 (PowerShell), T1570 (Lateral Tool Transfer)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -202,8 +207,14 @@ class LateralModule:
         for cmd in enable_cmds:
             console.print(f"  • {cmd}")
         
-        console.print("\n[bold]APT-41 PowerShell Remoting:[/bold]")
-        apt41_ps = [
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1021.006: Use WinRM for remote PowerShell sessions")
+        console.print("  • T1059.001: Execute PowerShell commands/scripts remotely")
+        console.print("  • T1570: Transfer tools/scripts via WinRM before execution")
+        console.print("  • Authenticate with T1078 (Valid Accounts) or T1550 (Alternate Auth)")
+        
+        console.print("\n[bold]PowerShell Remoting Patterns:[/bold]")
+        ps_patterns = [
             "Execute PowerShell scripts from memory",
             "Use Invoke-Command for remote execution",
             "Leverage existing PowerShell remoting sessions",
@@ -211,14 +222,14 @@ class LateralModule:
             "Use legitimate PowerShell modules"
         ]
         
-        for technique in apt41_ps:
-            console.print(f"  • [yellow]{technique}[/yellow]")
+        for pattern in ps_patterns:
+            console.print(f"  • [yellow]{pattern}[/yellow]")
         
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • WinRM uses HTTPS (5986) by default - encrypted")
         console.print("  • Resembles legitimate admin automation")
         console.print("  • Can execute scripts without dropping files")
-        console.print("  • APT-41 uses PowerShell extensively for lateral movement")
+        console.print("  • PowerShell extensively used for lateral movement")
         
         if is_live or Confirm.ask("\n[bold]Test WinRM connectivity?[/bold]", default=False):
             target = Prompt.ask("Target hostname or IP")
@@ -246,9 +257,9 @@ class LateralModule:
                     console.print(f"[red]Error:[/red] {stderr}")
     
     def _wmi_execution(self, console: Console, session_data: dict):
-        """WMI-based execution - APT-41 TTP: Lateral Movement & Persistence"""
+        """WMI-based execution"""
         console.print("\n[bold cyan]WMI-based Execution[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1047 (WMI), T1053.003 (Scheduled Task/Job: WMI)[/dim]\n")
+        console.print("[dim]TTP: T1047 (Windows Management Instrumentation), T1018 (Remote System Discovery)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -284,23 +295,29 @@ class LateralModule:
         for cmd in wmi_event_cmds:
             console.print(f"  • {cmd}")
         
-        console.print("\n[bold]APT-41 WMI Usage:[/bold]")
-        apt41_wmi = [
-            "WMI event subscriptions for persistence",
-            "Remote process creation via WMI",
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1047: Execute commands via WMI remotely")
+        console.print("  • T1018: Use WMI for remote system discovery")
+        console.print("  • T1053.003: WMI event subscriptions for persistence")
+        console.print("  • Operates over RPC (135) and dynamic ports")
+        
+        console.print("\n[bold]WMI Usage Patterns:[/bold]")
+        wmi_patterns = [
+            "Remote process creation via Win32_Process",
             "System inventory and discovery",
-            "WMI filters for GPO deployment",
-            "WMI-based lateral movement"
+            "WMI event subscriptions for persistence",
+            "Query system information remotely",
+            "Living off the land execution"
         ]
         
-        for usage in apt41_wmi:
-            console.print(f"  • [yellow]{usage}[/yellow]")
+        for pattern in wmi_patterns:
+            console.print(f"  • [yellow]{pattern}[/yellow]")
         
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • WMI operates over ports commonly allowed for management")
         console.print("  • Useful for inventorying hosts remotely")
         console.print("  • Can be used where other remoting mechanisms unavailable")
-        console.print("  • APT-41 uses WMI for both execution and persistence")
+        console.print("  • Uses legitimate Windows management protocols")
         
         if is_live or Confirm.ask("\n[bold]Execute WMI query?[/bold]", default=False):
             target = Prompt.ask("Target hostname or IP")
@@ -327,7 +344,8 @@ class LateralModule:
     
     def _rdp_pivoting(self, console: Console, session_data: dict):
         """RDP-based pivoting"""
-        console.print("\n[bold cyan]RDP-based Pivoting[/bold cyan]\n")
+        console.print("\n[bold cyan]RDP-based Pivoting[/bold cyan]")
+        console.print("[dim]TTP: T1021.001 (Remote Desktop Protocol)[/dim]\n")
         
         console.print("[bold]RDP Connection:[/bold]")
         rdp_cmds = [
@@ -371,10 +389,16 @@ class LateralModule:
         for case in use_cases:
             console.print(f"  • {case}")
         
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1021.001: Use RDP for interactive remote access")
+        console.print("  • Authenticate with T1078 (Valid Accounts) or T1550 (Alternate Auth)")
+        console.print("  • Useful for GUI-based tools and MMC snap-ins")
+        
         console.print("\n[bold]OPSEC Considerations:[/bold]")
         console.print("  • RDP sessions are visible in event logs")
         console.print("  • Use short-lived, tightly scoped sessions")
         console.print("  • Prefer SSH tunnel for RDP when possible")
+        console.print("  • Consider WinRM/PowerShell for non-interactive tasks")
     
     def _dcom_com(self, console: Console, session_data: dict):
         """DCOM / COM-based movement"""
@@ -410,7 +434,8 @@ class LateralModule:
     
     def _ssh_tunneling(self, console: Console, session_data: dict):
         """SSH tunneling and port forwarding"""
-        console.print("\n[bold cyan]SSH Tunneling & Port Forwarding[/bold cyan]\n")
+        console.print("\n[bold cyan]SSH Tunneling & Port Forwarding[/bold cyan]")
+        console.print("[dim]TTP: T1021.004 (SSH), T1570 (Lateral Tool Transfer), T1071 (Application Layer Protocol)[/dim]\n")
         
         console.print("[bold]Local Port Forwarding:[/bold]")
         local_fwd = [

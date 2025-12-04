@@ -54,9 +54,9 @@ class FootholdModule:
             console.print()
     
     def _assess_identity(self, console: Console, session_data: dict):
-        """Assess current identity and privileges - APT-41 TTP: Discovery"""
+        """Assess current identity and privileges"""
         console.print("\n[bold cyan]Identity & Privilege Assessment[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1087.001 (Account Discovery: Local Account), T1087.002 (Account Discovery: Domain Account)[/dim]\n")
+        console.print("[dim]TTP: T1078 (Valid Accounts), T1087.001 (Account Discovery: Local), T1087.002 (Account Discovery: Domain)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -136,12 +136,15 @@ class FootholdModule:
             
             session_data['identity'] = identity_data
             console.print("\n[green]✓ Identity data stored in session[/green]")
-            console.print("[dim]APT-41 Note: Focus on service accounts and domain admin memberships[/dim]")
+            console.print("\n[bold]TTP Context:[/bold]")
+            console.print("  • T1078 (Valid Accounts): Current account may be used for lateral movement")
+            console.print("  • T1087 (Account Discovery): Identify high-value accounts for pivoting")
+            console.print("  • Focus on service accounts and domain admin memberships")
     
     def _assess_host_role(self, console: Console, session_data: dict):
-        """Assess host role and classification - APT-41 TTP: Discovery"""
+        """Assess host role and classification"""
         console.print("\n[bold cyan]Host Role Classification[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1082 (System Information Discovery), T1018 (Remote System Discovery)[/dim]\n")
+        console.print("[dim]TTP: T1082 (System Information Discovery), T1018 (Remote System Discovery)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -241,12 +244,15 @@ class FootholdModule:
             
             session_data['host_role'] = role
             console.print(f"\n[green]✓ Host classified as: {role}[/green]")
-            console.print("[dim]APT-41 Note: Identify high-value targets (DCs, backup servers, management systems)[/dim]")
+            console.print("\n[bold]TTP Context:[/bold]")
+            console.print("  • T1082 (System Information Discovery): Understanding host role")
+            console.print("  • T1018 (Remote System Discovery): Identify high-value targets")
+            console.print("  • Focus: DCs, backup servers, management systems, file servers")
     
     def _assess_network_visibility(self, console: Console, session_data: dict):
-        """Assess network visibility from foothold - APT-41 TTP: Discovery"""
+        """Assess network visibility from foothold"""
         console.print("\n[bold cyan]Network Visibility Assessment[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1018 (Remote System Discovery), T1046 (Network Service Scanning)[/dim]\n")
+        console.print("[dim]TTP: T1018 (Remote System Discovery), T1135 (Network Share Discovery), T1021.004 (SSH)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -352,7 +358,11 @@ class FootholdModule:
             
             session_data['network'] = network_data
             console.print("\n[green]✓ Network data stored[/green]")
-            console.print("[dim]APT-41 Note: Prioritize DCs, file servers, and management systems[/dim]")
+            console.print("\n[bold]TTP Context:[/bold]")
+            console.print("  • T1018 (Remote System Discovery): Enumerate reachable hosts")
+            console.print("  • T1135 (Network Share Discovery): Identify accessible shares")
+            console.print("  • T1021.004 (SSH): Current foothold via SSH on Windows")
+            console.print("  • Prioritize: DCs, file servers, management systems for lateral movement")
     
     def _generate_report(self, console: Console, session_data: dict):
         """Generate foothold assessment report"""
@@ -382,37 +392,34 @@ class FootholdModule:
         console.print(panel)
     
     def _apt41_initial_access(self, console: Console, session_data: dict):
-        """APT-41 Initial Access Techniques"""
-        console.print("\n[bold cyan]APT-41 Initial Access Techniques[/bold cyan]")
-        console.print("[dim]MITRE ATT&CK: T1195 (Supply Chain Compromise), T1078 (Valid Accounts), T1071 (Application Layer Protocol)[/dim]\n")
+        """Initial Access & Authentication Techniques"""
+        console.print("\n[bold cyan]Initial Access & Authentication[/bold cyan]")
+        console.print("[dim]TTP: T1078 (Valid Accounts), T1550 (Use Alternate Authentication Material), T1021.004 (SSH)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
         
         techniques = {
-            "Supply Chain Attacks": [
-                "Compromise software update mechanisms",
-                "Infect legitimate software installers",
-                "Target software vendors and update servers",
-                "Use signed malicious binaries"
+            "T1078 - Valid Accounts": [
+                "Use compromised domain/local/service accounts",
+                "Service account abuse for lateral movement",
+                "Default credentials exploitation",
+                "Credential reuse across systems",
+                "Stolen credentials from previous breaches"
             ],
-            "Public-Facing Application Exploitation": [
-                "Exploit web application vulnerabilities",
-                "SQL injection, XSS, RCE vulnerabilities",
-                "Target exposed management interfaces",
-                "Exploit unpatched services"
+            "T1550 - Alternate Authentication Material": [
+                "Pass-the-Hash (PtH) - NTLM hash reuse",
+                "Pass-the-Ticket (PtT) - Kerberos ticket reuse",
+                "Pass-the-Token - Token manipulation",
+                "Golden Ticket creation",
+                "Silver Ticket creation"
             ],
-            "Spear-Phishing": [
-                "Targeted email campaigns",
-                "Malicious attachments (Office docs with macros)",
-                "Watering hole attacks",
-                "Social engineering"
-            ],
-            "Valid Accounts": [
-                "Use compromised credentials",
-                "Service account abuse",
-                "Default credentials",
-                "Credential reuse"
+            "T1021.004 - SSH": [
+                "Headless SSH service on Windows host",
+                "SSH key-based authentication",
+                "SSH tunneling for port forwarding",
+                "SSH as persistent control channel",
+                "Use SSH for file transfer and command execution"
             ]
         }
         
@@ -422,29 +429,30 @@ class FootholdModule:
                 console.print(f"  • {method}")
             console.print()
         
-        console.print("[bold]APT-41 Common Tools & Techniques:[/bold]")
-        tools = [
-            "Custom backdoors (BADSIGN, BADHATCH, etc.)",
-            "DLL sideloading with legitimate executables",
-            "PowerShell scripts for execution",
-            "WMI for persistence and execution",
-            "Scheduled tasks for persistence"
+        console.print("\n[bold]Authentication Material Usage:[/bold]")
+        auth_material = [
+            "T1550.002 (Pass-the-Hash): Use NTLM hashes for SMB/WinRM",
+            "T1550.003 (Pass-the-Ticket): Reuse Kerberos tickets",
+            "T1078.001 (Domain Accounts): Use domain credentials",
+            "T1078.002 (Domain Accounts): Use local accounts",
+            "T1078.003 (Local Accounts): Use service accounts"
         ]
         
-        for tool in tools:
-            console.print(f"  • {tool}")
+        for material in auth_material:
+            console.print(f"  • {material}")
         
-        console.print("\n[bold]Post-Initial Access:[/bold]")
-        post_access = [
-            "Establish persistence via scheduled tasks",
-            "Create WMI event subscriptions",
-            "Install backdoors via DLL sideloading",
-            "Disable security tools",
-            "Clear event logs"
+        console.print("\n[bold]SSH Foothold Characteristics (T1021.004):[/bold]")
+        ssh_chars = [
+            "Persistent encrypted control channel",
+            "Bound to Windows service account",
+            "Ability to execute commands and scripts",
+            "File transfer in/out capability",
+            "Use as relay point for port forwarding",
+            "Effective power depends on account privileges"
         ]
         
-        for step in post_access:
-            console.print(f"  • {step}")
+        for char in ssh_chars:
+            console.print(f"  • {char}")
         
         if is_live or Confirm.ask("\n[bold]Check for APT-41 indicators?[/bold]", default=False):
             console.print("\n[yellow]Checking for APT-41 indicators...[/yellow]\n")

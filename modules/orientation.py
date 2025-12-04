@@ -58,7 +58,8 @@ class OrientationModule:
     
     def _identity_mapping(self, console: Console, session_data: dict):
         """Map identities and privileges"""
-        console.print("\n[bold cyan]Identity & Privilege Mapping[/bold cyan]\n")
+        console.print("\n[bold cyan]Identity & Privilege Mapping[/bold cyan]")
+        console.print("[dim]TTP: T1087.001 (Account Discovery: Local), T1087.002 (Account Discovery: Domain)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -114,7 +115,8 @@ class OrientationModule:
     
     def _host_classification(self, console: Console, session_data: dict):
         """Classify host role"""
-        console.print("\n[bold cyan]Host Role Classification[/bold cyan]\n")
+        console.print("\n[bold cyan]Host Role Classification[/bold cyan]")
+        console.print("[dim]TTP: T1082 (System Information Discovery), T1018 (Remote System Discovery)[/dim]\n")
         
         checks = {
             "Server Roles": [
@@ -161,7 +163,8 @@ class OrientationModule:
     
     def _network_visibility(self, console: Console, session_data: dict):
         """Assess network visibility"""
-        console.print("\n[bold cyan]Network Visibility Assessment[/bold cyan]\n")
+        console.print("\n[bold cyan]Network Visibility Assessment[/bold cyan]")
+        console.print("[dim]TTP: T1018 (Remote System Discovery), T1135 (Network Share Discovery)[/dim]\n")
         
         console.print("[bold]Network Configuration:[/bold]")
         config_cmds = [
@@ -207,10 +210,16 @@ class OrientationModule:
         
         for cmd in test_cmds:
             console.print(f"  • {cmd}")
+        
+        console.print("\n[bold]TTP Context:[/bold]")
+        console.print("  • T1018 (Remote System Discovery): Identify reachable hosts for lateral movement")
+        console.print("  • T1135 (Network Share Discovery): Find accessible shares (C$, ADMIN$, IPC$, data shares)")
+        console.print("  • Use discovery to map paths for credential/tool transfer")
     
     def _service_accounts(self, console: Console, session_data: dict):
         """Discover service accounts"""
-        console.print("\n[bold cyan]Service Account Discovery[/bold cyan]\n")
+        console.print("\n[bold cyan]Service Account Discovery[/bold cyan]")
+        console.print("[dim]TTP: T1087.002 (Account Discovery: Domain), T1078.003 (Valid Accounts: Local Accounts)[/dim]\n")
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
@@ -282,9 +291,9 @@ class OrientationModule:
                 console.print(f"[red]Error:[/red] {stderr}")
     
     def _scheduled_tasks(self, console: Console, session_data: dict):
-        """Analyze scheduled tasks - APT-41 TTP: Persistence"""
+        """Analyze scheduled tasks"""
         console.print("\n[bold cyan]Scheduled Task Analysis[/bold cyan]")
-        console.print("[dim]APT-41 TTP: T1053.005 (Scheduled Task/Job: Scheduled Task), T1053.003 (Cron)[/dim]\n")
+        console.print("[dim]TTP: T1053.005 (Scheduled Task/Job: Scheduled Task)[/dim]\n")
         
         commands = [
             ("Get-ScheduledTask | Get-ScheduledTaskInfo", "All scheduled tasks"),
