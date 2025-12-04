@@ -36,6 +36,16 @@ class PE5SystemEscalationModule:
         self.moonwalk = None
         self.utils = PE5Utils()
         self.guidance_enabled = True
+        self.pe5_framework_available = self._check_pe5_framework()
+    
+    def _check_pe5_framework(self) -> bool:
+        """Check if PE5 framework is available"""
+        pe5_paths = [
+            Path('pe5_framework_extracted/pe5_framework'),
+            Path('../pe5_framework_extracted/pe5_framework'),
+            Path('pe5_framework'),
+        ]
+        return any(p.exists() and p.is_dir() for p in pe5_paths)
         
     def run(self, console: Console, session_data: dict):
         """Run PE5 SYSTEM escalation module"""

@@ -288,11 +288,15 @@ class RelayClientConfig:
     
     def __init__(self, config_path: Optional[str] = None):
         if config_path is None:
-            # Try multiple locations
+            # Try multiple locations (relative to workspace root)
+            workspace_root = Path(__file__).parent.parent
             config_paths = [
                 Path.home() / '.config' / 'ai-relay' / 'client.yaml',
                 Path('/etc/ai-relay/client.yaml'),
-                Path('config/remote_guided.yaml')
+                workspace_root / 'config' / 'remote_guided.yaml',
+                workspace_root / 'config' / 'client.yaml',
+                Path('config/remote_guided.yaml'),
+                Path('config/client.yaml'),
             ]
             for path in config_paths:
                 if Path(path).exists():

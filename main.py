@@ -22,6 +22,7 @@ from rich.layout import Layout
 from rich.text import Text
 from rich import box
 import os
+from pathlib import Path
 
 # Import modules
 from modules.foothold import FootholdModule
@@ -72,7 +73,47 @@ class LateralMovementTUI:
     
     def __init__(self):
         self.console = console
-        self.modules = {
+        self.discovered_components = self._discover_components()
+        self.modules = self._initialize_modules()
+        self.session_data = {
+            'LAB_USE': LAB_USE,
+            'AUTO_ENUMERATE': AUTO_ENUMERATE,
+            'AUTO_ENUMERATE_DEPTH': AUTO_ENUMERATE_DEPTH,
+            'is_local_ip': is_local_ip,
+            'discovered_components': self.discovered_components,  # Make available to modules
+        }
+    
+    def _discover_components(self) -> dict:
+        """Discover all available components"""
+        try:
+            from modules.discovery import ComponentDiscovery
+            discovery = ComponentDiscovery()
+            return discovery.get_summary()
+        except Exception as e:
+            # Fallback discovery
+            return self._fallback_discovery()
+    
+    def _fallback_discovery(self) -> dict:
+        """Fallback component discovery if discovery module fails"""
+        components = {
+            'pe5_framework': {'available': Path('pe5_framework_extracted/pe5_framework').exists()},
+            'relay_service': {'available': Path('relay').exists()},
+            'optional_dependencies': {}
+        }
+        
+        # Check optional dependencies
+        for dep in ['websockets', 'aiohttp', 'yaml', 'cryptography']:
+            try:
+                __import__(dep)
+                components['optional_dependencies'][dep] = True
+            except ImportError:
+                components['optional_dependencies'][dep] = False
+        
+        return components
+    
+    def _initialize_modules(self) -> dict:
+        """Initialize modules with availability checks"""
+        modules = {
             '1': ('Foothold & Starting Point', FootholdModule()),
             '2': ('Local Orientation', OrientationModule()),
             '3': ('Identity Acquisition', IdentityModule()),
@@ -84,14 +125,16 @@ class LateralMovementTUI:
             '9': ('LOLBins Reference', LOLBinsModule()),
             '10': ('LogHunter Integration', LogHunterModule()),
             '11': ('Windows Moonwalk', MoonwalkModule()),
-            '12': ('[PRIMARY] PE5 SYSTEM Escalation', PE5SystemEscalationModule()),
         }
-        self.session_data = {
-            'LAB_USE': LAB_USE,
-            'AUTO_ENUMERATE': AUTO_ENUMERATE,
-            'AUTO_ENUMERATE_DEPTH': AUTO_ENUMERATE_DEPTH,
-            'is_local_ip': is_local_ip,
-        }
+        
+        # PE5 module (always available, checks framework internally)
+        try:
+            modules['12'] = ('[PRIMARY] PE5 SYSTEM Escalation', PE5SystemEscalationModule())
+        except Exception as e:
+            console.print(f"[yellow]Warning: PE5 module initialization issue: {e}[/yellow]")
+            modules['12'] = ('[PRIMARY] PE5 SYSTEM Escalation (Limited)', None)
+        
+        return modules
         
     def show_banner(self):
         """Display application banner"""
@@ -110,6 +153,15 @@ class LateralMovementTUI:
             if depth_status:
                 status_line += f" ({depth_status})"
         
+        # Component availability status
+        comp_status = []
+        if self.discovered_components.get('pe5_framework', {}).get('available'):
+            comp_status.append("[green]PE5[/green]")
+        if self.discovered_components.get('relay_service', {}).get('available'):
+            comp_status.append("[green]Relay[/green]")
+        if comp_status:
+            status_line += f" | Components: {', '.join(comp_status)}"
+        
         panel = Panel(
             banner,
             box=box.DOUBLE,
@@ -118,7 +170,40 @@ class LateralMovementTUI:
             subtitle=f"[dim]For authorized testing only | {status_line}[/dim]"
         )
         self.console.print(panel)
+        
+        # Show component discovery on first run
+        if not hasattr(self, '_discovery_shown'):
+            self._show_component_discovery()
+            self._discovery_shown = True
+        
         self.console.print()
+    
+    def _show_component_discovery(self):
+        """Show component discovery status"""
+        try:
+            from modules.discovery import ComponentDiscovery
+            discovery = ComponentDiscovery()
+            
+            # Show brief status
+            pe5_avail = self.discovered_components.get('pe5_framework', {}).get('available', False)
+            relay_avail = self.discovered_components.get('relay_service', {}).get('available', False)
+            deps = self.discovered_components.get('optional_dependencies', {})
+            
+            if pe5_avail or relay_avail or any(deps.values()):
+                status_text = Text()
+                status_text.append("Component Status: ", style="dim")
+                if pe5_avail:
+                    status_text.append("PE5✓ ", style="green")
+                if relay_avail:
+                    status_text.append("Relay✓ ", style="green")
+                if deps.get('websockets'):
+                    status_text.append("WebSockets✓ ", style="dim green")
+                if deps.get('yaml'):
+                    status_text.append("YAML✓ ", style="dim green")
+                
+                self.console.print(Panel(status_text, border_style="dim", box=box.SIMPLE))
+        except Exception:
+            pass  # Silently fail if discovery fails
         
     def show_main_menu(self):
         """Display main menu"""
@@ -146,6 +231,7 @@ class LateralMovementTUI:
             table.add_row(f"[bold]{key}[/bold]", name, descriptions[key])
         
         table.add_row("[bold]0[/bold]", "[dim]Exit[/dim]", "[dim]Exit application[/dim]")
+        table.add_row("[bold]?[/bold]", "[dim cyan]Component Discovery[/dim cyan]", "[dim]Show available components[/dim]")
         
         self.console.print(table)
         self.console.print()
@@ -168,9 +254,13 @@ class LateralMovementTUI:
             
             choice = Prompt.ask(
                 "[bold cyan]Select module[/bold cyan]",
-                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
+                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '?'],
                 default='0'
             )
+            
+            if choice == '?':
+                self._show_full_discovery()
+                continue
             
             if choice == '0':
                 if Confirm.ask("\n[bold yellow]Exit application?[/bold yellow]"):
@@ -179,6 +269,14 @@ class LateralMovementTUI:
                 continue
             
             module_name, module_instance = self.modules[choice]
+            
+            # Check if module is available
+            if module_instance is None:
+                self.console.print(f"\n[bold red]Module '{module_name}' is not available[/bold red]")
+                self.console.print("[yellow]This module requires additional components that were not found.[/yellow]\n")
+                if Confirm.ask("[bold]Show component discovery report?[/bold]", default=True):
+                    self._show_full_discovery()
+                continue
             
             self.console.clear()
             self.console.print(f"\n[bold cyan]→ {module_name}[/bold cyan]\n")
