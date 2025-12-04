@@ -1,0 +1,18 @@
+graph TD
+    A[Initial Access<br/>T1190, T1078] --> B[Foothold Establishment]
+    B --> C[User Context<br/>ACMECORP\it_admin]
+    C --> D[Discovery<br/>T1082, T1018, T1087]
+    D --> F[Target Identification]
+    F --> H[Lateral Movement<br/>T1021, T1072]
+    H --> J[Privilege Escalation]
+    J --> K[Current Privileges]
+    K --> L[Persistence]
+    L --> M[C2 Channel]
+    M --> N[Defense Evasion<br/>T1070, T1562]
+    N --> O[Collection<br/>T1005, T1039]
+    O --> P[Exfiltration<br/>T1041, T1048]
+    style A fill:#ff6b6b
+    style C fill:#4ecdc4
+    style J fill:#ffe66d
+    style K fill:#95e1d3
+    style P fill:#f38181
