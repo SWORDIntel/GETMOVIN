@@ -1,5 +1,9 @@
 #!/bin/bash
 # Installation script for AI Relay (Debian/Ubuntu)
+# 
+# SECURITY: This script uses DSSSL (secure OpenSSL fork) when available
+# See: https://github.com/SWORDIntel/DSSSL
+# Install DSSSL first: sudo bash relay/scripts/install_dsssl.sh
 
 set -e
 
@@ -37,6 +41,10 @@ apt-get install -y python3 python3-pip python3-venv \
     python3-dev build-essential \
     libssl-dev \
     aiohttp websockets pyyaml
+
+# Note: For production, install DSSSL (secure OpenSSL fork) from:
+# https://github.com/SWORDIntel/DSSSL
+# Use: sudo bash relay/scripts/install_dsssl.sh
 
 # Create relay user and group
 if ! id "$RELAY_USER" &>/dev/null; then
@@ -104,7 +112,24 @@ chmod 700 "$CONFIG_DIR"
 # Generate self-signed certificate if TLS enabled and no cert exists
 if [ ! -f "$CONFIG_DIR/cert.pem" ]; then
     echo "Generating self-signed certificate..."
-    openssl req -x509 -newkey rsa:4096 -nodes \
+    
+    # Check for DSSSL (secure OpenSSL fork) first, fallback to standard OpenSSL
+    if command -v dsssl >/dev/null 2>&1; then
+        echo "Using DSSSL (secure OpenSSL fork) for certificate generation"
+        OPENSSL_CMD="dsssl"
+    elif [ -f "/usr/local/bin/dsssl" ]; then
+        echo "Using DSSSL from /usr/local/bin for certificate generation"
+        OPENSSL_CMD="/usr/local/bin/dsssl"
+    elif command -v openssl >/dev/null 2>&1; then
+        echo "Using standard OpenSSL for certificate generation (consider installing DSSSL)"
+        OPENSSL_CMD="openssl"
+    else
+        echo "ERROR: Neither DSSSL nor OpenSSL found. Please install DSSSL from:"
+        echo "       https://github.com/SWORDIntel/DSSSL"
+        exit 1
+    fi
+    
+    $OPENSSL_CMD req -x509 -newkey rsa:4096 -nodes \
         -keyout "$CONFIG_DIR/key.pem" \
         -out "$CONFIG_DIR/cert.pem" \
         -days 365 \

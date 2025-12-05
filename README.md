@@ -103,7 +103,7 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 - **AI Remote Guidance**: Interactive, contextual help system
 - **Relay Service**: Secure relay architecture for CGNAT scenarios
 - **MEMSHADOW Protocol**: Custom binary protocol for efficient data transfer
-- **CNSA 2.0 Compliant TLS**: Military-grade security for relay communications
+- **CNSA 2.0 Compliant TLS**: Military-grade security for relay communications (uses DSSSL secure OpenSSL fork)
 - **Tor Support**: Hidden service support for relay endpoints
 - **Structured Logging**: JSON logging for security monitoring
 - **Comprehensive Testing**: End-to-end test harness with coverage reporting
@@ -701,6 +701,7 @@ Coverage reports are generated in multiple formats:
 - **[docs/Auto_Enumeration_Enhancements.md](docs/Auto_Enumeration_Enhancements.md)** - Diagram generation and report storage
 - **[docs/MADCert_Integration.md](docs/MADCert_Integration.md)** - MADCert integration
 - **[docs/LOLBins_Reference.md](docs/LOLBins_Reference.md)** - LOLBins database
+- **[docs/DSSSL_Integration.md](docs/DSSSL_Integration.md)** - DSSSL (secure OpenSSL) integration guide
 
 ### New Features Documentation
 
