@@ -113,19 +113,35 @@ chmod 700 "$CONFIG_DIR"
 if [ ! -f "$CONFIG_DIR/cert.pem" ]; then
     echo "Generating self-signed certificate..."
     
-    # Check for DSSSL (secure OpenSSL fork) first, fallback to standard OpenSSL
-    if command -v dsssl >/dev/null 2>&1; then
-        echo "Using DSSSL (secure OpenSSL fork) for certificate generation"
+    # Find DSSSL (secure OpenSSL fork) - check local repo first, then system
+    OPENSSL_CMD=""
+    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    LOCAL_DSSSL="$REPO_ROOT/dsssl/install/bin/dsssl"
+    
+    if [ -f "$LOCAL_DSSSL" ]; then
+        echo "Using DSSSL from local repository: $LOCAL_DSSSL"
+        OPENSSL_CMD="$LOCAL_DSSSL"
+    elif [ -f "$REPO_ROOT/dsssl/install/bin/openssl" ]; then
+        echo "Using DSSSL (openssl) from local repository"
+        OPENSSL_CMD="$REPO_ROOT/dsssl/install/bin/openssl"
+    elif command -v dsssl >/dev/null 2>&1; then
+        echo "Using DSSSL (secure OpenSSL fork) from system PATH"
         OPENSSL_CMD="dsssl"
     elif [ -f "/usr/local/bin/dsssl" ]; then
-        echo "Using DSSSL from /usr/local/bin for certificate generation"
+        echo "Using DSSSL from /usr/local/bin"
         OPENSSL_CMD="/usr/local/bin/dsssl"
     elif command -v openssl >/dev/null 2>&1; then
-        echo "Using standard OpenSSL for certificate generation (consider installing DSSSL)"
+        echo "Using standard OpenSSL for certificate generation"
+        echo "  Note: For enhanced security, build DSSSL: bash scripts/build_dsssl.sh"
         OPENSSL_CMD="openssl"
     else
-        echo "ERROR: Neither DSSSL nor OpenSSL found. Please install DSSSL from:"
-        echo "       https://github.com/SWORDIntel/DSSSL"
+        echo "ERROR: Neither DSSSL nor OpenSSL found."
+        echo ""
+        echo "Please build DSSSL locally:"
+        echo "  bash scripts/build_dsssl.sh"
+        echo ""
+        echo "Or install system-wide:"
+        echo "  https://github.com/SWORDIntel/DSSSL"
         exit 1
     fi
     

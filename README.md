@@ -103,7 +103,7 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 - **AI Remote Guidance**: Interactive, contextual help system
 - **Relay Service**: Secure relay architecture for CGNAT scenarios
 - **MEMSHADOW Protocol**: Custom binary protocol for efficient data transfer
-- **CNSA 2.0 Compliant TLS**: Military-grade security for relay communications (uses DSSSL secure OpenSSL fork)
+- **CNSA 2.0 Compliant TLS**: Military-grade security for relay communications (uses DSSSL secure OpenSSL fork - self-contained in repository)
 - **Tor Support**: Hidden service support for relay endpoints
 - **Structured Logging**: JSON logging for security monitoring
 - **Comprehensive Testing**: End-to-end test harness with coverage reporting
@@ -128,6 +128,21 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 - **Windows OS** (primary target) or Linux/Mac (for preparation)
 - **Administrator privileges** (for some operations)
 - **Internet connection** (for initial dependency installation, or use offline dependencies)
+- **Build tools** (for DSSSL - `build-essential` on Linux, Visual Studio on Windows)
+
+### DSSSL (Secure OpenSSL) - Self-Contained
+
+DSSSL is included as a git submodule and built locally:
+
+```bash
+# Initialize submodules (includes DSSSL)
+git submodule update --init --recursive
+
+# Build DSSSL locally (self-contained)
+bash scripts/build_dsssl.sh
+```
+
+All TLS operations automatically use the local DSSSL installation. No system-wide installation required.
 
 ### Quick Installation
 
@@ -158,6 +173,18 @@ This automatically:
 ```bash
 git clone <repository-url>
 cd windows-lateral-movement-tui
+
+# Initialize submodules (includes DSSSL)
+git submodule update --init --recursive
+```
+
+#### Step 1.5: Build DSSSL (Self-Contained)
+
+```bash
+# Build DSSSL locally in repository (self-contained)
+bash scripts/build_dsssl.sh
+
+# This builds DSSSL to dsssl/install/ - all scripts use it automatically
 ```
 
 Or extract the archive to a directory.

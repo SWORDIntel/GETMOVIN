@@ -1,10 +1,26 @@
 #!/bin/bash
-# DSSSL Installation Helper Script
-# Installs DSSSL (secure OpenSSL fork) for use with AI Relay service
+# DSSSL Installation Helper Script (System-Wide Installation)
+# 
+# NOTE: DSSSL is now self-contained in the repository.
+# For self-contained build, use: bash scripts/build_dsssl.sh
 #
+# This script is for system-wide installation only.
 # Repository: https://github.com/SWORDIntel/DSSSL
 
 set -e
+
+echo "=========================================="
+echo "DSSSL System-Wide Installation"
+echo "=========================================="
+echo ""
+echo "NOTE: DSSSL is now self-contained in this repository."
+echo "For local build (recommended), use:"
+echo "  bash scripts/build_dsssl.sh"
+echo ""
+echo "This script installs DSSSL system-wide (optional)."
+echo "Press Ctrl+C to cancel, or Enter to continue..."
+read
+echo ""
 
 DSSSL_REPO="https://github.com/SWORDIntel/DSSSL.git"
 INSTALL_PREFIX="/usr/local"
