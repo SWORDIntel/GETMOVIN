@@ -44,8 +44,11 @@ from modules.loghunter_integration import LogHunterModule, MoonwalkModule
 from modules.pe5_system_escalation import PE5SystemEscalationModule
 from modules.credential_manager_ui import CredentialManagerModule
 from modules.vlan_bypass import VLANBypassModule
+from modules.ssh_ui import SSHSessionModule
 
-console = Console()
+# Configure console for SSH compatibility
+# Rich TUI works perfectly over SSH - detects terminal capabilities automatically
+console = Console(force_terminal=True)  # Force terminal mode for SSH compatibility
 
 # LAB_USE flag: Set to 1 to limit operations to local IP ranges only
 LAB_USE = 1
@@ -161,6 +164,7 @@ class LateralMovementTUI:
             '11': ('Windows Moonwalk', MoonwalkModule()),
             '13': ('Credential Manager', CredentialManagerModule()),
             '14': ('VLAN Bypass', VLANBypassModule()),
+            '15': ('SSH Session Management', SSHSessionModule()),
         }
         
         # PE5 module (always available, checks framework internally)
@@ -231,7 +235,8 @@ class LateralMovementTUI:
             '11': 'Windows Moonwalk - Cover tracks & clear logs',
             '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation',
             '13': 'Credential Manager - Persistent credential storage & management',
-            '14': 'VLAN Bypass - Network segmentation bypass techniques'
+            '14': 'VLAN Bypass - Network segmentation bypass techniques',
+            '15': 'SSH Session Management - Remote command execution over SSH'
         }
         
         for key, (name, _) in self.modules.items():
