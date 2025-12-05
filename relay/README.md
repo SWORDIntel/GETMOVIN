@@ -7,6 +7,7 @@ The AI Relay service provides a secure, CNSA 2.0 compliant middlebox for remote-
 ## Features
 
 - ✅ **CNSA 2.0 Compliant**: Full Commercial National Security Algorithm Suite 2.0 compliance
+- ✅ **DSSSL Integration**: Uses SWORDIntel's secure OpenSSL fork for enhanced security
 - ✅ **TLS Extensions**: Command channel via TLS ALPN extensions
 - ✅ **MEMSHADOW Protocol**: Binary data transmission using custom MEMSHADOW protocol
 - ✅ **Multiple Transport**: Direct IP, FQDN (dynamic DNS), Tor (.onion)
@@ -19,12 +20,20 @@ The AI Relay service provides a secure, CNSA 2.0 compliant middlebox for remote-
 
 ### Installation
 
+**Recommended: Install DSSSL first for enhanced security**
+
 ```bash
+# Install DSSSL (secure OpenSSL fork)
+sudo bash relay/scripts/install_dsssl.sh
+
+# Install relay service (will automatically use DSSSL)
 cd relay
 sudo ./scripts/install.sh
 sudo nano /etc/ai-relay/relay.yaml  # Configure tokens
 sudo systemctl start ai-relay
 ```
+
+**Note:** The relay installer automatically detects and uses DSSSL if available, falling back to standard OpenSSL if not found.
 
 ### Configuration
 

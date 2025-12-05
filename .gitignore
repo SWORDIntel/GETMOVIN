@@ -20,6 +20,11 @@ wheels/
 .installed.cfg
 *.egg
 
+# DSSSL build artifacts (but keep source)
+dsssl/build/
+dsssl/install/
+dsssl/.git/
+
 # Virtual Environment
 venv/
 env/

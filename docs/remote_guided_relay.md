@@ -6,6 +6,7 @@ The AI Relay service provides a secure middlebox for remote-guided auto-coding w
 
 **Key Features:**
 - **CNSA 2.0 Compliant**: Full Commercial National Security Algorithm Suite 2.0 compliance
+- **DSSSL Integration**: Uses SWORDIntel's secure OpenSSL fork for enhanced security
 - **TLS Extensions**: Command channel via TLS ALPN extensions
 - **MEMSHADOW Protocol**: Binary data transmission using custom MEMSHADOW protocol
 - **Multiple Transport Options**: Direct IP, FQDN (dynamic DNS), Tor (.onion)
