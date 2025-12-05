@@ -5,9 +5,21 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
+from rich.tree import Tree
+from rich.layout import Layout
+from rich.text import Text
+from rich.live import Live
+from rich.columns import Columns
 from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
 from modules.loghunter_integration import WindowsMoonwalk
 from modules.credential_manager import get_credential_manager, CredentialType
+from modules.network_visualizer import NetworkVisualizer
+from modules.network_visualizer import NetworkVisualizer
+import ipaddress
+import re
+from typing import Dict, List, Set, Optional, Tuple
+from dataclasses import dataclass, field
+from datetime import datetime
 
 
 class LateralModule:
@@ -40,12 +52,13 @@ class LateralModule:
             table.add_row("5", "DCOM / COM-based Movement [APT-41: Lateral Movement]")
             table.add_row("6", "SSH Tunneling & Port Forwarding [APT-41: Command and Control]")
             table.add_row("7", "APT-41 Custom Tools & Techniques")
+            table.add_row("8", "Network Visualization & Exploration [Interactive Network Map]")
             table.add_row("0", "Return to main menu")
             
             console.print(table)
             console.print()
             
-            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8'], default='0')
             
             if choice == '0':
                 break
@@ -63,6 +76,8 @@ class LateralModule:
                 self._ssh_tunneling(console, session_data)
             elif choice == '7':
                 self._apt41_lateral_tools(console, session_data)
+            elif choice == '8':
+                self._network_visualization(console, session_data)
             
             # Moonwalk cleanup after lateral movement operations
             if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
@@ -667,3 +682,11 @@ class LateralModule:
         
         for case in use_cases:
             console.print(f"  • {case}")
+    
+    def _network_visualization(self, console: Console, session_data: dict):
+        """Network Visualization & Exploration - Interactive network mapping"""
+        console.print("\n[bold cyan]Network Visualization & Exploration[/bold cyan]")
+        console.print("[dim]Interactive network mapping, host discovery, and lateral movement visualization[/dim]\n")
+        
+        visualizer = NetworkVisualizer(console, session_data)
+        visualizer.visualize_network()
