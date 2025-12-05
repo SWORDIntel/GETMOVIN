@@ -2,7 +2,12 @@
 
 All execution functions support both local and remote SSH execution.
 When used over SSH, commands execute on the remote system.
-Rich TUI works perfectly over SSH connections.
+
+IMPORTANT: This toolkit is designed to be controlled entirely over SSH.
+- Rich TUI works perfectly over SSH terminals
+- All interactive features work over SSH
+- Commands execute on the system where Python runs (local or remote)
+- When accessed over SSH, the tool runs on the remote system
 """
 
 import subprocess

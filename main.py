@@ -47,8 +47,16 @@ from modules.vlan_bypass import VLANBypassModule
 from modules.ssh_ui import SSHSessionModule
 
 # Configure console for SSH compatibility
-# Rich TUI works perfectly over SSH - detects terminal capabilities automatically
-console = Console(force_terminal=True)  # Force terminal mode for SSH compatibility
+# Rich TUI works perfectly over SSH - designed for terminal environments
+# When controlled entirely over SSH, all features work normally
+import os
+
+# Configure console - Rich automatically detects terminal capabilities over SSH
+console = Console(
+    force_terminal=True,  # Always use terminal mode (works over SSH)
+    legacy_windows=False,  # Modern terminal handling
+    # Rich auto-detects width/height and color support over SSH
+)
 
 # LAB_USE flag: Set to 1 to limit operations to local IP ranges only
 LAB_USE = 1
@@ -192,6 +200,11 @@ class LateralMovementTUI:
             status_line += f" | {enum_status}"
             if depth_status:
                 status_line += f" ({depth_status})"
+        
+        # SSH detection - show when running over SSH
+        is_ssh_env = bool(os.getenv('SSH_CONNECTION') or os.getenv('SSH_CLIENT') or os.getenv('SSH_TTY'))
+        if is_ssh_env:
+            status_line += " | [dim cyan]SSH[/dim cyan]"
         
         # Component availability status
         comp_status = []

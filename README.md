@@ -4,6 +4,8 @@
 
 A comprehensive, self-contained Terminal User Interface (TUI) tool for simulating and modeling Windows lateral movement techniques, aligned with APT-41 (Winnti Group) Tactics, Techniques, and Procedures (TTPs) and MITRE ATT&CK framework.
 
+**Designed for SSH Control** - This tool is intended to be controlled entirely over SSH. Rich TUI works perfectly over SSH connections, and all features are available when accessing remotely.
+
 ## ⚠️ WARNING
 
 **This tool is for authorized security testing and threat modeling only. Unauthorized use is illegal.**
@@ -18,6 +20,17 @@ run.bat
 **Linux/Mac (for testing/preparation):**
 ```bash
 ./run.sh
+```
+
+**Over SSH (Recommended):**
+```bash
+# SSH into target system
+ssh user@target-host
+
+# Run the tool
+python main.py
+
+# Rich TUI works perfectly over SSH - all features available
 ```
 
 **Cross-Platform Setup (Prepare on Linux, Deploy to Windows):**
@@ -36,6 +49,7 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 ### Core Capabilities
 
 - **Self-Contained**: Fully autonomous - no online dependencies required
+- **SSH-Compatible**: Designed to be controlled entirely over SSH - Rich TUI works perfectly
 - **Auto-Bootstrap**: Single command setup - everything auto-installs
 - **Cross-Platform Preparation**: Prepare on Linux, deploy to Windows
 - **Graceful Degradation**: Works with or without optional components
