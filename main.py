@@ -42,6 +42,8 @@ from modules.lolbins_reference import LOLBinsModule
 from modules.auto_enumerate import AutoEnumerateModule
 from modules.loghunter_integration import LogHunterModule, MoonwalkModule
 from modules.pe5_system_escalation import PE5SystemEscalationModule
+from modules.credential_manager_ui import CredentialManagerModule
+from modules.vlan_bypass import VLANBypassModule
 
 console = Console()
 
@@ -157,6 +159,8 @@ class LateralMovementTUI:
             '9': ('LOLBins Reference', LOLBinsModule()),
             '10': ('LogHunter Integration', LogHunterModule()),
             '11': ('Windows Moonwalk', MoonwalkModule()),
+            '13': ('Credential Manager', CredentialManagerModule()),
+            '14': ('VLAN Bypass', VLANBypassModule()),
         }
         
         # PE5 module (always available, checks framework internally)
@@ -225,7 +229,9 @@ class LateralMovementTUI:
             '9': 'LOLBins reference - Living Off The Land Binaries',
             '10': 'LogHunter - Windows event log analysis & hunting',
             '11': 'Windows Moonwalk - Cover tracks & clear logs',
-            '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation'
+            '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation',
+            '13': 'Credential Manager - Persistent credential storage & management',
+            '14': 'VLAN Bypass - Network segmentation bypass techniques'
         }
         
         for key, (name, _) in self.modules.items():
@@ -260,6 +266,9 @@ class LateralMovementTUI:
                 menu_options.append({'key': key, 'label': name})
             menu_options.append({'key': '?', 'label': 'Component Discovery'})
             menu_options.append({'key': '0', 'label': 'Exit'})
+            
+            # Update choices list for Prompt validation
+            valid_choices = [opt['key'] for opt in menu_options]
             
             choice = select_menu_option(
                 self.console,

