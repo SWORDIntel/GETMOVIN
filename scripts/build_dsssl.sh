@@ -35,9 +35,19 @@ fi
 # Check if DSSSL is a git submodule (has .git file)
 if [ -f "$DSSSL_DIR/.git" ] || [ -d "$DSSSL_DIR/.git" ]; then
     echo "✓ DSSSL submodule detected"
-    echo "  Updating submodule..."
+    echo "  Updating submodule (skipping optional/problematic submodules)..."
     cd "$REPO_ROOT"
-    git submodule update --init --recursive dsssl || true
+    # Initialize main DSSSL submodule first
+    git submodule update --init dsssl || true
+    
+    # Try to update submodules, but continue even if some fail
+    cd "$DSSSL_DIR"
+    # Disable problematic optional submodules before recursive update
+    git config submodule.wycheproof.active false 2>/dev/null || true
+    
+    # Update submodules recursively, but don't fail on errors
+    cd "$REPO_ROOT"
+    git submodule update --init --recursive dsssl 2>&1 | grep -v "wycheproof" || true
 else
     echo "⚠ DSSSL directory exists but may not be a submodule"
 fi
