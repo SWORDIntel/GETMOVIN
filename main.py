@@ -14,7 +14,10 @@ License: For authorized security testing only
 
 import sys
 import ipaddress
+<<<<<<< HEAD
 import logging
+=======
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
@@ -23,6 +26,7 @@ from rich.layout import Layout
 from rich.text import Text
 from rich import box
 import os
+<<<<<<< HEAD
 from pathlib import Path
 
 # Configure logging for discovery
@@ -31,6 +35,11 @@ logging.basicConfig(level=logging.WARNING)
 # Import modules
 from modules.foothold import FootholdModule
 from modules.utils import select_menu_option
+=======
+
+# Import modules
+from modules.foothold import FootholdModule
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
 from modules.orientation import OrientationModule
 from modules.identity import IdentityModule
 from modules.lateral import LateralModule
@@ -41,7 +50,10 @@ from modules.madcert_integration import MADCertModule
 from modules.lolbins_reference import LOLBinsModule
 from modules.auto_enumerate import AutoEnumerateModule
 from modules.loghunter_integration import LogHunterModule, MoonwalkModule
+<<<<<<< HEAD
 from modules.pe5_system_escalation import PE5SystemEscalationModule
+=======
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
 
 console = Console()
 
@@ -78,6 +90,7 @@ class LateralMovementTUI:
     
     def __init__(self):
         self.console = console
+<<<<<<< HEAD
         self.discovered_components = self._discover_and_preload_components()
         self.modules = self._initialize_modules()
         self.session_data = {
@@ -146,6 +159,9 @@ class LateralMovementTUI:
     def _initialize_modules(self) -> dict:
         """Initialize modules with availability checks"""
         modules = {
+=======
+        self.modules = {
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
             '1': ('Foothold & Starting Point', FootholdModule()),
             '2': ('Local Orientation', OrientationModule()),
             '3': ('Identity Acquisition', IdentityModule()),
@@ -158,6 +174,7 @@ class LateralMovementTUI:
             '10': ('LogHunter Integration', LogHunterModule()),
             '11': ('Windows Moonwalk', MoonwalkModule()),
         }
+<<<<<<< HEAD
         
         # PE5 module (always available, checks framework internally)
         try:
@@ -167,6 +184,14 @@ class LateralMovementTUI:
             modules['12'] = ('[PRIMARY] PE5 SYSTEM Escalation (Limited)', None)
         
         return modules
+=======
+        self.session_data = {
+            'LAB_USE': LAB_USE,
+            'AUTO_ENUMERATE': AUTO_ENUMERATE,
+            'AUTO_ENUMERATE_DEPTH': AUTO_ENUMERATE_DEPTH,
+            'is_local_ip': is_local_ip,
+        }
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         
     def show_banner(self):
         """Display application banner"""
@@ -185,6 +210,7 @@ class LateralMovementTUI:
             if depth_status:
                 status_line += f" ({depth_status})"
         
+<<<<<<< HEAD
         # Component availability status
         comp_status = []
         if self.discovered_components.get('pe5_framework', {}).get('available'):
@@ -194,6 +220,8 @@ class LateralMovementTUI:
         if comp_status:
             status_line += f" | Components: {', '.join(comp_status)}"
         
+=======
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         panel = Panel(
             banner,
             box=box.DOUBLE,
@@ -202,9 +230,13 @@ class LateralMovementTUI:
             subtitle=f"[dim]For authorized testing only | {status_line}[/dim]"
         )
         self.console.print(panel)
+<<<<<<< HEAD
         
         self.console.print()
     
+=======
+        self.console.print()
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         
     def show_main_menu(self):
         """Display main menu"""
@@ -224,15 +256,22 @@ class LateralMovementTUI:
             '8': 'MADCert certificate generation for AD environments',
             '9': 'LOLBins reference - Living Off The Land Binaries',
             '10': 'LogHunter - Windows event log analysis & hunting',
+<<<<<<< HEAD
             '11': 'Windows Moonwalk - Cover tracks & clear logs',
             '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation'
+=======
+            '11': 'Windows Moonwalk - Cover tracks & clear logs'
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         }
         
         for key, (name, _) in self.modules.items():
             table.add_row(f"[bold]{key}[/bold]", name, descriptions[key])
         
         table.add_row("[bold]0[/bold]", "[dim]Exit[/dim]", "[dim]Exit application[/dim]")
+<<<<<<< HEAD
         table.add_row("[bold]?[/bold]", "[dim cyan]Component Discovery[/dim cyan]", "[dim]Show available components & preload[/dim]")
+=======
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         
         self.console.print(table)
         self.console.print()
@@ -253,6 +292,7 @@ class LateralMovementTUI:
         while True:
             self.show_main_menu()
             
+<<<<<<< HEAD
             # Create menu options for navigation
             menu_options = []
             for key in sorted(self.modules.keys(), key=lambda x: int(x) if x.isdigit() else 999):
@@ -272,6 +312,14 @@ class LateralMovementTUI:
                 self._show_full_discovery()
                 continue
             
+=======
+            choice = Prompt.ask(
+                "[bold cyan]Select module[/bold cyan]",
+                choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'],
+                default='0'
+            )
+            
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
             if choice == '0':
                 if Confirm.ask("\n[bold yellow]Exit application?[/bold yellow]"):
                     self.console.print("[green]Goodbye![/green]")
@@ -280,6 +328,7 @@ class LateralMovementTUI:
             
             module_name, module_instance = self.modules[choice]
             
+<<<<<<< HEAD
             # Check if module is available
             if module_instance is None:
                 self.console.print(f"\n[bold red]Module '{module_name}' is not available[/bold red]")
@@ -288,6 +337,8 @@ class LateralMovementTUI:
                     self._show_full_discovery()
                 continue
             
+=======
+>>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
             self.console.clear()
             self.console.print(f"\n[bold cyan]→ {module_name}[/bold cyan]\n")
             
