@@ -102,7 +102,6 @@ if [ -f "../Configure" ]; then
         no-ssl3-method \
         no-weak-ssl-ciphers \
         enable-tls1_3 \
-        enable-ec_nistp_64_gcc_128 \
         enable-ec_nistp_64_gcc_128
 elif [ -f "../configure" ]; then
     # Autotools configure script
