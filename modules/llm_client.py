@@ -6,8 +6,6 @@ import json
 from typing import Dict, Any, Optional
 # BinaryProtocol is defined as a class in llm_agent module
 # We need to import it, but it's not exported, so we'll define it here
-import struct
-import json
 
 class BinaryProtocol:
     """Custom 2-way binary protocol handler"""

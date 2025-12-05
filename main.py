@@ -42,8 +42,21 @@ from modules.lolbins_reference import LOLBinsModule
 from modules.auto_enumerate import AutoEnumerateModule
 from modules.loghunter_integration import LogHunterModule, MoonwalkModule
 from modules.pe5_system_escalation import PE5SystemEscalationModule
+from modules.credential_manager_ui import CredentialManagerModule
+from modules.vlan_bypass import VLANBypassModule
+from modules.ssh_ui import SSHSessionModule
 
-console = Console()
+# Configure console for SSH compatibility
+# Rich TUI works perfectly over SSH - designed for terminal environments
+# When controlled entirely over SSH, all features work normally
+import os
+
+# Configure console - Rich automatically detects terminal capabilities over SSH
+console = Console(
+    force_terminal=True,  # Always use terminal mode (works over SSH)
+    legacy_windows=False,  # Modern terminal handling
+    # Rich auto-detects width/height and color support over SSH
+)
 
 # LAB_USE flag: Set to 1 to limit operations to local IP ranges only
 LAB_USE = 1
@@ -157,6 +170,9 @@ class LateralMovementTUI:
             '9': ('LOLBins Reference', LOLBinsModule()),
             '10': ('LogHunter Integration', LogHunterModule()),
             '11': ('Windows Moonwalk', MoonwalkModule()),
+            '13': ('Credential Manager', CredentialManagerModule()),
+            '14': ('VLAN Bypass', VLANBypassModule()),
+            '15': ('SSH Session Management', SSHSessionModule()),
         }
         
         # PE5 module (always available, checks framework internally)
@@ -184,6 +200,11 @@ class LateralMovementTUI:
             status_line += f" | {enum_status}"
             if depth_status:
                 status_line += f" ({depth_status})"
+        
+        # SSH detection - show when running over SSH
+        is_ssh_env = bool(os.getenv('SSH_CONNECTION') or os.getenv('SSH_CLIENT') or os.getenv('SSH_TTY'))
+        if is_ssh_env:
+            status_line += " | [dim cyan]SSH[/dim cyan]"
         
         # Component availability status
         comp_status = []
@@ -225,7 +246,10 @@ class LateralMovementTUI:
             '9': 'LOLBins reference - Living Off The Land Binaries',
             '10': 'LogHunter - Windows event log analysis & hunting',
             '11': 'Windows Moonwalk - Cover tracks & clear logs',
-            '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation'
+            '12': '[PRIMARY] PE5 SYSTEM escalation - Kernel-level token manipulation',
+            '13': 'Credential Manager - Persistent credential storage & management',
+            '14': 'VLAN Bypass - Network segmentation bypass techniques',
+            '15': 'SSH Session Management - Remote command execution over SSH'
         }
         
         for key, (name, _) in self.modules.items():
@@ -260,6 +284,9 @@ class LateralMovementTUI:
                 menu_options.append({'key': key, 'label': name})
             menu_options.append({'key': '?', 'label': 'Component Discovery'})
             menu_options.append({'key': '0', 'label': 'Exit'})
+            
+            # Update choices list for Prompt validation
+            valid_choices = [opt['key'] for opt in menu_options]
             
             choice = select_menu_option(
                 self.console,
