@@ -22,6 +22,10 @@ from modules.memshadow_protocol import (
     MemshadowHeader, MRACProtocol, MRACMessageType, SelfCodeCommandType,
     HeaderFlags, ValueType
 )
+from modules.remote_hub import (
+    RemoteControlHub, RemoteEvent, EventType, HookPriority,
+    RemoteControlPlugin, LoggingPlugin, CommandFilterPlugin, RateLimitPlugin
+)
 
 
 class NonceTracker:
@@ -287,10 +291,10 @@ class CodeGenerator:
 
 
 class LLMAgentServer:
-    """LLM Agent Server - MEMSHADOW MRAC Protocol Implementation"""
+    """LLM Agent Server - MEMSHADOW MRAC Protocol Implementation with Remote Control Hub"""
     
     def __init__(self, console: Console, session_data: dict, host: str = 'localhost', port: int = 8888,
-                 session_token: Optional[bytes] = None):
+                 session_token: Optional[bytes] = None, hub: Optional[RemoteControlHub] = None):
         self.console = console
         self.session_data = session_data
         self.host = host
@@ -305,6 +309,46 @@ class LLMAgentServer:
         self.sequence_num = 0
         self.app_id = uuid.uuid4().bytes  # This server's app_id
         
+        # Remote control hub
+        self.hub = hub or RemoteControlHub(name=f"llm_agent_{host}_{port}")
+        
+        # Register built-in plugins
+        self.hub.register_plugin(LoggingPlugin())
+        
+        # Register server hooks
+        self._register_server_hooks()
+        
+    def _register_server_hooks(self):
+        """Register server-specific hooks"""
+        import asyncio
+        
+        # Connection established hook
+        async def on_connection(event: RemoteEvent, context: Dict[str, Any]) -> Optional[RemoteEvent]:
+            if event.event_type == EventType.CONNECTION_ESTABLISHED:
+                self.console.print(f"[green]Connection established: {event.data.get('address')}[/green]")
+            return event
+        
+        self.hub.register_hook(
+            "server_connection",
+            on_connection,
+            [EventType.CONNECTION_ESTABLISHED],
+            HookPriority.NORMAL
+        )
+        
+        # Command received hook
+        async def on_command(event: RemoteEvent, context: Dict[str, Any]) -> Optional[RemoteEvent]:
+            if event.event_type == EventType.COMMAND_RECEIVED:
+                cmd_data = event.data
+                self.console.print(f"[cyan]Command received: {cmd_data.get('command_type')}[/cyan]")
+            return event
+        
+        self.hub.register_hook(
+            "server_command",
+            on_command,
+            [EventType.COMMAND_RECEIVED],
+            HookPriority.NORMAL
+        )
+    
     def start(self):
         """Start the LLM agent server"""
         try:
@@ -314,12 +358,26 @@ class LLMAgentServer:
             self.socket.listen(5)
             self.running = True
             
+            # Emit connection event
+            asyncio.run(self.hub.emit_event(
+                EventType.CONNECTION_ESTABLISHED,
+                "server",
+                {'host': self.host, 'port': self.port, 'status': 'listening'}
+            ))
+            
             self.console.print(f"[green]LLM Agent Server started on {self.host}:{self.port}[/green]")
             
             while self.running:
                 try:
                     client_socket, address = self.socket.accept()
                     self.console.print(f"[cyan]New connection from {address}[/cyan]")
+                    
+                    # Emit connection event
+                    asyncio.run(self.hub.emit_event(
+                        EventType.CONNECTION_ESTABLISHED,
+                        "server",
+                        {'address': str(address), 'client_id': str(uuid.uuid4())}
+                    ))
                     
                     client_thread = threading.Thread(
                         target=self._handle_client,
@@ -332,10 +390,20 @@ class LLMAgentServer:
                 except Exception as e:
                     if self.running:
                         self.console.print(f"[red]Error accepting connection: {e}[/red]")
+                        asyncio.run(self.hub.emit_event(
+                            EventType.ERROR_OCCURRED,
+                            "server",
+                            {'error': str(e), 'type': 'connection_error'}
+                        ))
         
         except Exception as e:
             self.console.print(f"[red]Failed to start server: {e}[/red]")
             self.running = False
+            asyncio.run(self.hub.emit_event(
+                EventType.ERROR_OCCURRED,
+                "server",
+                {'error': str(e), 'type': 'startup_error'}
+            ))
     
     def stop(self):
         """Stop the LLM agent server"""
@@ -455,7 +523,9 @@ class LLMAgentServer:
             self._send_app_error(client_socket, self.app_id, 0xFFFE, str(e))
     
     def _handle_app_command(self, client_socket: socket.socket, header: bytes, payload: bytes, flags: int):
-        """Handle APP_COMMAND message"""
+        """Handle APP_COMMAND message with hub integration"""
+        import asyncio
+        
         try:
             cmd_data = MRACProtocol.unpack_command(payload)
             app_id = cmd_data['app_id']
@@ -472,6 +542,22 @@ class LLMAgentServer:
                 self._send_memshadow_message(client_socket, MRACMessageType.APP_COMMAND_ACK, ack_payload, flags)
                 return
             
+            # Emit command received event (hooks can modify/block)
+            event = asyncio.run(self.hub.emit_event(
+                EventType.COMMAND_RECEIVED,
+                f"app_{uuid.UUID(bytes=app_id)}",
+                {
+                    'command_id': command_id,
+                    'command_type': cmd_type,
+                    'args': args.hex() if isinstance(args, bytes) else str(args),
+                    'app_id': app_id.hex()
+                }
+            ))
+            
+            # If event was blocked (returned None), don't process
+            if event is None:
+                return
+            
             # Process command based on type
             if cmd_type == SelfCodeCommandType.SELF_CODE_PLAN_REQUEST:
                 result = self._handle_plan_request(args)
@@ -483,6 +569,17 @@ class LLMAgentServer:
                 # Generic command execution
                 result = self._handle_generic_command(cmd_type, args)
             
+            # Emit command executed event
+            asyncio.run(self.hub.emit_event(
+                EventType.COMMAND_EXECUTED,
+                f"app_{uuid.UUID(bytes=app_id)}",
+                {
+                    'command_id': command_id,
+                    'success': result.get('success', False),
+                    'result': result
+                }
+            ))
+            
             # Send ACK
             result_bytes = json.dumps(result).encode('utf-8')
             ack_payload = MRACProtocol.pack_command_ack(
@@ -493,6 +590,11 @@ class LLMAgentServer:
         
         except Exception as e:
             self.console.print(f"[red]Command error: {e}[/red]")
+            asyncio.run(self.hub.emit_event(
+                EventType.ERROR_OCCURRED,
+                "server",
+                {'error': str(e), 'type': 'command_error', 'command_id': command_id}
+            ))
             cmd_data = MRACProtocol.unpack_command(payload)
             ack_payload = MRACProtocol.pack_command_ack(
                 cmd_data['app_id'], cmd_data['command_id'], 1,
@@ -620,6 +722,18 @@ class LLMAgentServer:
         """Send APP_ERROR message"""
         error_payload = MRACProtocol.pack_error(app_id, error_code, detail, self.session_token)
         self._send_memshadow_message(client_socket, MRACMessageType.APP_ERROR, error_payload)
+    
+    def get_hub(self) -> RemoteControlHub:
+        """Get the remote control hub for easy programming hooks"""
+        return self.hub
+    
+    def register_plugin(self, plugin: RemoteControlPlugin):
+        """Register a plugin with the hub"""
+        self.hub.register_plugin(plugin)
+    
+    def register_hook(self, name: str, handler, event_types=None, priority=HookPriority.NORMAL):
+        """Register a hook with the hub (convenience method)"""
+        return self.hub.register_hook(name, handler, event_types, priority)
 
 
 class LLMAgentModule:
