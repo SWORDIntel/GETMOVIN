@@ -4,7 +4,52 @@ import socket
 import struct
 import json
 from typing import Dict, Any, Optional
-from modules.llm_agent import BinaryProtocol
+# BinaryProtocol is defined as a class in llm_agent module
+# We need to import it, but it's not exported, so we'll define it here
+import struct
+import json
+
+class BinaryProtocol:
+    """Custom 2-way binary protocol handler"""
+    MAGIC = b'\xAA\xBB\xCC\xDD'
+    VERSION = 1
+    MSG_COMMAND = 0x01
+    MSG_CODE_GENERATE = 0x02
+    MSG_EXECUTE = 0x03
+    MSG_RESPONSE = 0x04
+    MSG_ERROR = 0x05
+    MSG_HEARTBEAT = 0x06
+    
+    @staticmethod
+    def pack_message(msg_type: int, payload: bytes) -> bytes:
+        """Pack a message into binary format"""
+        length = len(payload)
+        return struct.pack('!4sBBL', BinaryProtocol.MAGIC, BinaryProtocol.VERSION, msg_type, length) + payload
+    
+    @staticmethod
+    def unpack_message(data: bytes):
+        """Unpack a message from binary format"""
+        if len(data) < 10:
+            raise ValueError("Message too short")
+        magic, version, msg_type, length = struct.unpack('!4sBBL', data[:10])
+        if magic != BinaryProtocol.MAGIC:
+            raise ValueError(f"Invalid magic: {magic.hex()}")
+        if version != BinaryProtocol.VERSION:
+            raise ValueError(f"Unsupported version: {version}")
+        payload = data[10:10+length]
+        if len(payload) != length:
+            raise ValueError(f"Payload length mismatch: expected {length}, got {len(payload)}")
+        return msg_type, payload
+    
+    @staticmethod
+    def encode_json(data):
+        """Encode JSON data to bytes"""
+        return json.dumps(data).encode('utf-8')
+    
+    @staticmethod
+    def decode_json(data: bytes):
+        """Decode bytes to JSON data"""
+        return json.loads(data.decode('utf-8'))
 
 
 class LLMAgentClient:

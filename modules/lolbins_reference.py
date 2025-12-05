@@ -17,7 +17,6 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.text import Text
-from modules.utils import select_menu_option
 
 
 class LOLBinsDatabase:
@@ -510,27 +509,25 @@ class LOLBinsModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            menu_options = [
-                {'key': '1', 'label': 'Search LOLBins'},
-                {'key': '2', 'label': 'Browse by Category'},
-                {'key': '3', 'label': 'Execution LOLBins'},
-                {'key': '4', 'label': 'Lateral Movement LOLBins'},
-                {'key': '5', 'label': 'Credential Access LOLBins'},
-                {'key': '6', 'label': 'Discovery LOLBins'},
-                {'key': '7', 'label': 'Persistence LOLBins'},
-                {'key': '8', 'label': 'Defense Evasion LOLBins'},
-                {'key': '9', 'label': 'Collection LOLBins'},
-                {'key': '10', 'label': 'Build Command Dynamically'},
-                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
-                {'key': '0', 'label': 'Return to main menu'},
-            ]
+            table.add_row("1", "Search LOLBins")
+            table.add_row("2", "Browse by Category")
+            table.add_row("3", "Execution LOLBins")
+            table.add_row("4", "Lateral Movement LOLBins")
+            table.add_row("5", "Credential Access LOLBins")
+            table.add_row("6", "Discovery LOLBins")
+            table.add_row("7", "Persistence LOLBins")
+            table.add_row("8", "Defense Evasion LOLBins")
+            table.add_row("9", "Collection LOLBins")
+            table.add_row("10", "Build Command Dynamically")
+            table.add_row("0", "Return to main menu")
             
-            choice = select_menu_option(console, menu_options, "Select function", default='0')
+            console.print(table)
+            console.print()
+            
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'], default='0')
             
             if choice == '0':
                 break
-            elif choice == '?':
-                self._show_guide(console)
             elif choice == '1':
                 self._search_lolbins(console)
             elif choice == '2':
@@ -553,43 +550,6 @@ class LOLBinsModule:
                 self._build_command(console, session_data)
             
             console.print()
-    
-    def _show_guide(self, console: Console):
-        """Show module guide"""
-        guide_text = """[bold cyan]LOLBins Reference Module Guide[/bold cyan]
-
-[bold]Purpose:[/bold]
-Living Off The Land Binaries - Reference database of legitimate Windows tools for lateral movement and operations.
-
-[bold]Key Functions:[/bold]
-1. Search LOLBins - Search for specific binaries
-2. Browse by Category - Browse by MITRE ATT&CK category
-3-9. Category Views - Execution, Lateral Movement, Credential Access, etc.
-10. Build Command Dynamically - Construct commands with parameters
-
-[bold]MITRE ATT&CK TTPs:[/bold]
-• T1218 - Signed Binary Proxy Execution
-• T1059 - Command and Scripting Interpreter
-• T1105 - Ingress Tool Transfer
-• T1021 - Remote Services
-• T1003 - OS Credential Dumping
-
-[bold]Usage Tips:[/bold]
-• Use option 1 to find specific tools quickly
-• Browse categories (options 3-9) to discover tools by purpose
-• Option 10 helps build commands with proper syntax
-• All tools are legitimate Windows binaries
-• Using LOLBins helps avoid detection
-
-[bold]Best Practices:[/bold]
-• Prefer native Windows tools over custom tools
-• Use tools that blend with normal admin activity
-• Document which tools you use for OPSEC
-• Test commands in lab environment first"""
-        
-        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
-        console.print()
-        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _search_lolbins(self, console: Console):
         """Search LOLBins"""

@@ -3,11 +3,8 @@
 import subprocess
 import ipaddress
 import re
-import sys
-from typing import Optional, Tuple, List, Dict
-from rich.console import Console
-from rich.table import Table
-from rich import box
+from typing import Optional, Tuple, List, Dict, Any
+from rich.prompt import Prompt
 
 
 def is_local_ip(ip_str: str) -> bool:
@@ -92,159 +89,36 @@ def execute_cmd(command: str, check_lab: bool = True, lab_use: int = 0) -> Tuple
     return execute_command(command, shell=True, check_lab=check_lab, lab_use=lab_use)
 
 
-def _get_key() -> str:
-    """Get a single keypress (cross-platform)"""
-    if sys.platform == 'win32':
-        import msvcrt
-        key = msvcrt.getch()
-        if key == b'\xe0':  # Extended key
-            key2 = msvcrt.getch()
-            if key2 == b'H':
-                return 'UP'
-            elif key2 == b'P':
-                return 'DOWN'
-        elif key == b'\r':
-            return 'ENTER'
-        elif key == b'\x1b':
-            return 'ESC'
-        else:
-            try:
-                return key.decode('utf-8')
-            except:
-                return ''
-    else:
-        import termios
-        import tty
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            key = sys.stdin.read(1)
-            if key == '\x1b':  # ESC sequence
-                key2 = sys.stdin.read(1)
-                if key2 == '[':
-                    key3 = sys.stdin.read(1)
-                    if key3 == 'A':
-                        return 'UP'
-                    elif key3 == 'B':
-                        return 'DOWN'
-            elif key == '\r' or key == '\n':
-                return 'ENTER'
-            elif key == '\x1b':
-                return 'ESC'
-            else:
-                return key
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-def select_menu_option(
-    console: Console,
-    options: List[Dict[str, str]],
-    prompt: str = "Select option",
-    default: str = "0"
-) -> str:
+def select_menu_option(console, menu_options: List[Dict[str, Any]], prompt: str, default: str = '0') -> str:
     """
-    Interactive menu selector with arrow key navigation and number input
+    Display a menu and get user selection
     
     Args:
         console: Rich console instance
-        options: List of dicts with 'key' and 'label'
+        menu_options: List of dicts with 'key' and 'label' keys
         prompt: Prompt text to display
-        default: Default selection key
+        default: Default option key
     
     Returns:
         Selected option key
     """
-    # Find default index
-    default_idx = 0
-    for i, opt in enumerate(options):
-        if opt['key'] == default:
-            default_idx = i
-            break
+    # Extract valid choices from menu options
+    choices = [opt['key'] for opt in menu_options]
     
-    current_idx = default_idx
+    # Display menu
+    console.print()
+    for opt in menu_options:
+        key = opt['key']
+        label = opt['label']
+        marker = "[bold]" if key == default else ""
+        console.print(f"  {marker}{key}[/bold] - {label}")
+    console.print()
     
-    # Render menu function
-    def render_menu():
-        table = Table(box=box.SIMPLE, show_header=False)
-        table.add_column("Option", style="cyan", width=3)
-        table.add_column("Function", style="white")
-        
-        for i, opt in enumerate(options):
-            if i == current_idx:
-                # Highlight current selection
-                table.add_row(
-                    f"[bold cyan on yellow]{opt['key']}[/bold cyan on yellow]",
-                    f"[bold on yellow]{opt['label']}[/bold on yellow]"
-                )
-            else:
-                table.add_row(opt['key'], opt['label'])
-        
-        return table
+    # Get user choice
+    choice = Prompt.ask(
+        prompt,
+        choices=choices,
+        default=default
+    )
     
-    # Try arrow key navigation
-    try:
-        # Display initial menu
-        menu_table = render_menu()
-        help_text = f"[dim]{prompt} (↑↓ arrows to navigate, Enter to select, or type number)[/dim]"
-        console.print(menu_table)
-        console.print(help_text)
-        
-        # Handle input
-        while True:
-            try:
-                key = _get_key()
-                
-                if key == 'UP':
-                    current_idx = max(0, current_idx - 1)
-                    console.clear()
-                    menu_table = render_menu()
-                    console.print(menu_table)
-                    console.print(help_text)
-                elif key == 'DOWN':
-                    current_idx = min(len(options) - 1, current_idx + 1)
-                    console.clear()
-                    menu_table = render_menu()
-                    console.print(menu_table)
-                    console.print(help_text)
-                elif key == 'ENTER':
-                    return options[current_idx]['key']
-                elif key == 'ESC':
-                    return default
-                elif key and key.isdigit():
-                    # Direct number selection
-                    for opt in options:
-                        if opt['key'] == key:
-                            return opt['key']
-                elif key and key in [opt['key'] for opt in options]:
-                    # Direct key selection (for '?' etc)
-                    return key
-            except (KeyboardInterrupt, EOFError):
-                return default
-            except Exception:
-                # If arrow keys fail, fall through to Prompt
-                break
-    except Exception:
-        pass
-    
-    # Fallback: Use Rich's Prompt with enhanced display
-    table = Table(box=box.SIMPLE, show_header=False)
-    table.add_column("Option", style="cyan", width=3)
-    table.add_column("Function", style="white")
-    
-    for i, opt in enumerate(options):
-        if i == current_idx:
-            table.add_row(
-                f"[bold cyan]{opt['key']}[/bold cyan]",
-                f"[bold]{opt['label']}[/bold]"
-            )
-        else:
-            table.add_row(opt['key'], opt['label'])
-    
-    console.print(table)
-    console.print(f"\n[dim]{prompt} (Type number or option key)[/dim]")
-    
-    from rich.prompt import Prompt
-    choices = [opt['key'] for opt in options]
-    return Prompt.ask(prompt, choices=choices, default=default)
+    return choice

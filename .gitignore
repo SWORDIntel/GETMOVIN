@@ -36,12 +36,15 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Project specific
 *.log
 *.json
 *.html
 *.txt
+*.evtx
+*.xml
 enumeration_report_*.txt
 enumeration_report_*.json
 enumeration_report_*.html
@@ -55,12 +58,22 @@ pe_report.json
 # Temporary files
 *.tmp
 *.temp
+temp/
+tmp/
 
 # Certificates (if generated)
 *.pem
 *.key
 *.crt
 *.cert
+*.pfx
+*.p12
+*.cer
+
+# Sensitive data
+*.secret
+config.ini
+.env
 
 # Tor hidden service
 /var/lib/tor/ai-relay/

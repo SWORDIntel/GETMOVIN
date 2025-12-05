@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target, select_menu_option
+from modules.utils import execute_command, execute_powershell, execute_cmd, validate_target
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -22,8 +22,7 @@ class LateralModule:
         while True:
             console.print(Panel(
                 "[bold]Lateral Movement Channels[/bold]\n\n"
-                "Execute lateral movement using SMB/RPC, WinRM, WMI, and RDP.\n"
-                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
+                "Execute lateral movement using SMB/RPC, WinRM, WMI, and RDP.",
                 title="Module 4",
                 border_style="cyan"
             ))
@@ -33,24 +32,22 @@ class LateralModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            menu_options = [
-                {'key': '1', 'label': 'SMB/RPC-based Movement [APT-41: Lateral Movement]'},
-                {'key': '2', 'label': 'WinRM / PowerShell Remoting [APT-41: Lateral Movement]'},
-                {'key': '3', 'label': 'WMI-based Execution [APT-41: Lateral Movement]'},
-                {'key': '4', 'label': 'RDP-based Pivoting [APT-41: Lateral Movement]'},
-                {'key': '5', 'label': 'DCOM / COM-based Movement [APT-41: Lateral Movement]'},
-                {'key': '6', 'label': 'SSH Tunneling & Port Forwarding [APT-41: Command and Control]'},
-                {'key': '7', 'label': 'APT-41 Custom Tools & Techniques'},
-                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
-                {'key': '0', 'label': 'Return to main menu'},
-            ]
+            table.add_row("1", "SMB/RPC-based Movement [APT-41: Lateral Movement]")
+            table.add_row("2", "WinRM / PowerShell Remoting [APT-41: Lateral Movement]")
+            table.add_row("3", "WMI-based Execution [APT-41: Lateral Movement]")
+            table.add_row("4", "RDP-based Pivoting [APT-41: Lateral Movement]")
+            table.add_row("5", "DCOM / COM-based Movement [APT-41: Lateral Movement]")
+            table.add_row("6", "SSH Tunneling & Port Forwarding [APT-41: Command and Control]")
+            table.add_row("7", "APT-41 Custom Tools & Techniques")
+            table.add_row("0", "Return to main menu")
             
-            choice = select_menu_option(console, menu_options, "Select function", default='0')
+            console.print(table)
+            console.print()
+            
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
             
             if choice == '0':
                 break
-            elif choice == '?':
-                self._show_guide(console)
             elif choice == '1':
                 self._smb_rpc(console, session_data)
             elif choice == '2':
@@ -66,54 +63,11 @@ class LateralModule:
             elif choice == '7':
                 self._apt41_lateral_tools(console, session_data)
             
-            # Moonwalk cleanup after lateral movement operations (enabled by default)
-            if choice != '0':
+            # Moonwalk cleanup after lateral movement operations
+            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
                 self._moonwalk_cleanup(console, 'lateral_movement')
             
             console.print()
-    
-    def _show_guide(self, console: Console):
-        """Show module guide"""
-        guide_text = """[bold cyan]Lateral Movement Channels Module Guide[/bold cyan]
-
-[bold]Purpose:[/bold]
-Execute lateral movement using SMB/RPC, WinRM, WMI, and RDP.
-
-[bold]Key Functions:[/bold]
-1. SMB/RPC Movement - Use PsExec, WMIExec, or custom tools
-2. WinRM/PowerShell Remoting - Remote PowerShell execution
-3. WMI Execution - Windows Management Instrumentation
-4. RDP Pivoting - Remote Desktop Protocol tunneling
-5. DCOM/COM Movement - Distributed COM execution
-6. SSH Tunneling - Port forwarding and tunneling
-7. APT-41 Custom Tools - Specialized lateral movement tools
-
-[bold]MITRE ATT&CK TTPs:[/bold]
-• T1021 - Remote Services
-• T1072 - Software Deployment Tools
-• T1105 - Ingress Tool Transfer
-• T1570 - Lateral Tool Transfer
-• T1021.001 - Remote Desktop Protocol
-• T1021.002 - SMB/Windows Admin Shares
-• T1021.003 - Distributed Component Object Model
-
-[bold]Usage Tips:[/bold]
-• Option 1 (SMB/RPC) is most common and reliable
-• Option 2 (WinRM) requires PowerShell remoting enabled
-• Option 3 (WMI) is stealthy but slower
-• Option 4 (RDP) provides interactive access
-• Use credentials from Identity module for authentication
-• Moonwalk automatically clears lateral movement traces
-
-[bold]Best Practices:[/bold]
-• Use valid credentials from credential harvesting
-• Prefer native Windows tools (living off the land)
-• Test connectivity before attempting movement
-• Clear traces after each lateral movement operation"""
-        
-        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
-        console.print()
-        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

@@ -6,10 +6,6 @@ from rich.table import Table
 from rich import box
 from rich.console import Console
 from modules.loghunter_integration import WindowsMoonwalk
-from modules.utils import select_menu_option, execute_cmd, execute_powershell
-from modules.credential_manager import (
-    get_credential_manager, CredentialType, CredentialSource
-)
 
 
 class IdentityModule:
@@ -17,92 +13,6 @@ class IdentityModule:
     
     def __init__(self):
         self.moonwalk = None
-        self.cred_manager = get_credential_manager()
-    
-    def _save_harvested_credential(self, console: Console, username: str, 
-                                   password: str = "", hash_value: str = "",
-                                   domain: str = "", target: str = "",
-                                   source: str = "", cred_type: str = ""):
-        """Save a harvested credential to persistent storage"""
-        try:
-            if password:
-                cred_id = self.cred_manager.add_password(
-                    username=username,
-                    password=password,
-                    domain=domain,
-                    target=target,
-                    source=source or CredentialSource.CREDENTIAL_MANAGER.value
-                )
-            elif hash_value:
-                cred_id = self.cred_manager.add_hash(
-                    username=username,
-                    hash_value=hash_value,
-                    domain=domain,
-                    target=target,
-                    source=source or CredentialSource.LSASS_DUMP.value
-                )
-            else:
-                return None
-            
-            console.print(f"[green]✓ Credential saved: {domain}\\{username if domain else username}[/green]")
-            return cred_id
-        except Exception as e:
-            console.print(f"[yellow]Could not save credential: {e}[/yellow]")
-            return None
-    
-    def _parse_and_save_cmdkey_output(self, console: Console, output: str):
-        """Parse cmdkey output and save credentials"""
-        import re
-        saved = 0
-        
-        # Parse cmdkey output format
-        # Target: Domain:target=server
-        # User: DOMAIN\username
-        current_target = None
-        current_user = None
-        
-        for line in output.split('\n'):
-            line = line.strip()
-            if line.startswith('Target:'):
-                current_target = line.replace('Target:', '').strip()
-            elif line.startswith('User:'):
-                current_user = line.replace('User:', '').strip()
-                
-                if current_user and current_target:
-                    # Parse domain\user format
-                    if '\\' in current_user:
-                        domain, username = current_user.split('\\', 1)
-                    else:
-                        domain, username = '', current_user
-                    
-                    # Save as placeholder (password not available, just noting the stored cred)
-                    self.cred_manager.add_credential(
-                        self.cred_manager.credentials.get(f"stored_{username}_{current_target}") or 
-                        type('Credential', (), {
-                            'id': f"stored_{username}_{current_target}",
-                            'cred_type': CredentialType.PASSWORD.value,
-                            'source': CredentialSource.CREDENTIAL_MANAGER.value,
-                            'username': username,
-                            'domain': domain,
-                            'target': current_target,
-                            'notes': 'Stored credential discovered via cmdkey',
-                        })()
-                    ) if hasattr(self.cred_manager, 'add_credential') else None
-                    saved += 1
-                    current_target = None
-                    current_user = None
-        
-        if saved:
-            console.print(f"[green]✓ Discovered {saved} stored credentials[/green]")
-    
-    def _show_credential_summary(self, console: Console):
-        """Show summary of stored credentials"""
-        summary = self.cred_manager.get_summary()
-        if summary['total'] > 0:
-            console.print(f"\n[bold cyan]Credential Store:[/bold cyan] {summary['total']} credentials saved to ./loot/credentials/")
-            if summary['by_type']:
-                types_str = ", ".join(f"{t}: {c}" for t, c in list(summary['by_type'].items())[:5])
-                console.print(f"[dim]Types: {types_str}[/dim]")
     
     def run(self, console: Console, session_data: dict):
         if not self.moonwalk:
@@ -111,8 +21,7 @@ class IdentityModule:
         while True:
             console.print(Panel(
                 "[bold]Identity Acquisition[/bold]\n\n"
-                "Harvest credentials and understand domain context for lateral movement.\n"
-                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
+                "Harvest credentials and understand domain context for lateral movement.",
                 title="Module 3",
                 border_style="cyan"
             ))
@@ -122,24 +31,22 @@ class IdentityModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            menu_options = [
-                {'key': '1', 'label': 'Local Credential Sources [APT-41: Credential Access]'},
-                {'key': '2', 'label': 'Credential Store Access [APT-41: Credential Access]'},
-                {'key': '3', 'label': 'Configuration Secrets [APT-41: Credential Access]'},
-                {'key': '4', 'label': 'User Artifacts [APT-41: Credential Access]'},
-                {'key': '5', 'label': 'Domain Context & Delegation [APT-41: Discovery]'},
-                {'key': '6', 'label': 'Token & Ticket Extraction [APT-41: Credential Access]'},
-                {'key': '7', 'label': 'LSASS Memory Dumping [APT-41: Credential Access]'},
-                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
-                {'key': '0', 'label': 'Return to main menu'},
-            ]
+            table.add_row("1", "Local Credential Sources [APT-41: Credential Access]")
+            table.add_row("2", "Credential Store Access [APT-41: Credential Access]")
+            table.add_row("3", "Configuration Secrets [APT-41: Credential Access]")
+            table.add_row("4", "User Artifacts [APT-41: Credential Access]")
+            table.add_row("5", "Domain Context & Delegation [APT-41: Discovery]")
+            table.add_row("6", "Token & Ticket Extraction [APT-41: Credential Access]")
+            table.add_row("7", "LSASS Memory Dumping [APT-41: Credential Access]")
+            table.add_row("0", "Return to main menu")
             
-            choice = select_menu_option(console, menu_options, "Select function", default='0')
+            console.print(table)
+            console.print()
+            
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6', '7'], default='0')
             
             if choice == '0':
                 break
-            elif choice == '?':
-                self._show_guide(console)
             elif choice == '1':
                 self._local_credentials(console, session_data)
             elif choice == '2':
@@ -155,52 +62,11 @@ class IdentityModule:
             elif choice == '7':
                 self._lsass_dumping(console, session_data)
             
-            # Moonwalk cleanup after credential access operations (enabled by default)
-            if choice != '0':
+            # Moonwalk cleanup after credential access operations
+            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
                 self._moonwalk_cleanup(console, 'credential_access')
             
             console.print()
-    
-    def _show_guide(self, console: Console):
-        """Show module guide"""
-        guide_text = """[bold cyan]Identity Acquisition Module Guide[/bold cyan]
-
-[bold]Purpose:[/bold]
-Harvest credentials and understand domain context for lateral movement.
-
-[bold]Key Functions:[/bold]
-1. Local Credential Sources - SAM, LSA secrets, cached credentials
-2. Credential Store Access - Windows Credential Manager, Vault
-3. Configuration Secrets - Config files, registry, service accounts
-4. User Artifacts - Browser passwords, saved credentials
-5. Domain Context & Delegation - Domain info, trust relationships
-6. Token & Ticket Extraction - Kerberos tickets, access tokens
-7. LSASS Memory Dumping - Extract credentials from memory
-
-[bold]MITRE ATT&CK TTPs:[/bold]
-• T1003 - OS Credential Dumping
-• T1555 - Credentials from Password Stores
-• T1556 - Modify Authentication Process
-• T1078 - Valid Accounts
-• T1087 - Account Discovery
-• T1003.001 - LSASS Memory
-
-[bold]Usage Tips:[/bold]
-• Start with option 1 for local credentials
-• Option 5 provides domain context for lateral movement
-• Option 6 extracts tokens for pass-the-ticket attacks
-• Option 7 (LSASS) requires elevated privileges
-• Moonwalk automatically clears credential access traces
-
-[bold]Best Practices:[/bold]
-• Extract domain admin credentials when possible
-• Use tokens/tickets for stealthy lateral movement
-• Document service account credentials
-• Clear traces after credential extraction"""
-        
-        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
-        console.print()
-        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""

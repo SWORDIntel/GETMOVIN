@@ -5,7 +5,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
 from rich.console import Console
-from modules.utils import execute_command, execute_powershell, execute_cmd, select_menu_option
+from modules.utils import execute_command, execute_powershell, execute_cmd
 from modules.loghunter_integration import WindowsMoonwalk
 
 
@@ -22,8 +22,7 @@ class OrientationModule:
         while True:
             console.print(Panel(
                 "[bold]Local Orientation[/bold]\n\n"
-                "Understand identity, host role, and network visibility from beachhead.\n"
-                "[dim]Moonwalk: Auto-clearing logs and traces after each operation[/dim]",
+                "Understand identity, host role, and network visibility from beachhead.",
                 title="Module 2",
                 border_style="cyan"
             ))
@@ -33,23 +32,21 @@ class OrientationModule:
             table.add_column("Option", style="cyan", width=3)
             table.add_column("Function", style="white")
             
-            menu_options = [
-                {'key': '1', 'label': 'Identity & Privilege Mapping [APT-41: Discovery]'},
-                {'key': '2', 'label': 'Host Role Classification [APT-41: Discovery]'},
-                {'key': '3', 'label': 'Network Visibility Assessment [APT-41: Discovery]'},
-                {'key': '4', 'label': 'Service Account Discovery [APT-41: Discovery]'},
-                {'key': '5', 'label': 'Scheduled Task Analysis [APT-41: Persistence]'},
-                {'key': '6', 'label': 'Security Software Discovery [APT-41: Defense Evasion]'},
-                {'key': '?', 'label': 'Module Guide - Usage instructions and TTPs'},
-                {'key': '0', 'label': 'Return to main menu'},
-            ]
+            table.add_row("1", "Identity & Privilege Mapping [APT-41: Discovery]")
+            table.add_row("2", "Host Role Classification [APT-41: Discovery]")
+            table.add_row("3", "Network Visibility Assessment [APT-41: Discovery]")
+            table.add_row("4", "Service Account Discovery [APT-41: Discovery]")
+            table.add_row("5", "Scheduled Task Analysis [APT-41: Persistence]")
+            table.add_row("6", "Security Software Discovery [APT-41: Defense Evasion]")
+            table.add_row("0", "Return to main menu")
             
-            choice = select_menu_option(console, menu_options, "Select function", default='0')
+            console.print(table)
+            console.print()
+            
+            choice = Prompt.ask("Select function", choices=['0', '1', '2', '3', '4', '5', '6'], default='0')
             
             if choice == '0':
                 break
-            elif choice == '?':
-                self._show_guide(console)
             elif choice == '1':
                 self._identity_mapping(console, session_data)
             elif choice == '2':
@@ -63,51 +60,11 @@ class OrientationModule:
             elif choice == '6':
                 self._security_software_discovery(console, session_data)
             
-            # Moonwalk cleanup after operations (enabled by default)
-            if choice != '0':
+            # Moonwalk cleanup after operations
+            if choice != '0' and Confirm.ask("\n[bold yellow]Clear traces (moonwalk)?[/bold yellow]", default=False):
                 self._moonwalk_cleanup(console, 'execution')
             
             console.print()
-    
-    def _show_guide(self, console: Console):
-        """Show module guide"""
-        guide_text = """[bold cyan]Local Orientation Module Guide[/bold cyan]
-
-[bold]Purpose:[/bold]
-Understand identity, host role, and network visibility from beachhead.
-
-[bold]Key Functions:[/bold]
-1. Identity & Privilege Mapping - Map current user and privileges
-2. Host Role Classification - Identify workstation, server, or domain controller
-3. Network Visibility Assessment - Discover network topology and reachable hosts
-4. Service Account Discovery - Find service accounts for privilege escalation
-5. Scheduled Task Analysis - Identify persistence mechanisms
-6. Security Software Discovery - Detect AV/EDR before operations
-
-[bold]MITRE ATT&CK TTPs:[/bold]
-• T1082 - System Information Discovery
-• T1018 - Remote System Discovery
-• T1033 - System Owner/User Discovery
-• T1087 - Account Discovery
-• T1053 - Scheduled Task/Job
-• T1518 - Software Discovery
-
-[bold]Usage Tips:[/bold]
-• Use option 1 to understand your current access level
-• Option 2 helps identify high-value targets (DCs, file servers)
-• Option 3 maps the network for lateral movement planning
-• Option 6 is critical - know what security software is present
-• Moonwalk automatically clears traces after each operation
-
-[bold]Best Practices:[/bold]
-• Document all discovered hosts and their roles
-• Note service accounts with high privileges
-• Identify network segments and firewall boundaries
-• Check for security software before executing operations"""
-        
-        console.print(Panel(guide_text, title="Module Guide", border_style="cyan"))
-        console.print()
-        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
     
     def _moonwalk_cleanup(self, console: Console, operation_type: str):
         """Perform moonwalk cleanup after operation"""
