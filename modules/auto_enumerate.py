@@ -4,10 +4,7 @@ import json
 import time
 import re
 from datetime import datetime
-<<<<<<< HEAD
 from pathlib import Path
-=======
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -17,13 +14,10 @@ from rich.prompt import Prompt, Confirm
 from rich import box
 from modules.utils import execute_cmd, execute_powershell, validate_target
 from modules.loghunter_integration import LogHunter, WindowsMoonwalk
-<<<<<<< HEAD
 from modules.diagram_generator import DiagramGenerator
 
 # Export for testing compatibility
 __all__ = ['AutoEnumerator', 'AutoEnumerateModule', 'ReportGenerator', 'DiagramGenerator']
-=======
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
 
 
 class AutoEnumerator:
@@ -43,12 +37,8 @@ class AutoEnumerator:
             'persistence': {},
             'certificates': {},
             'lolbins_used': [],
-<<<<<<< HEAD
             'lateral_paths': [],  # Track lateral movement paths
             'privilege_escalation': {}  # PE5 privilege escalation data
-=======
-            'lateral_paths': []  # Track lateral movement paths
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         }
         self.lab_use = session_data.get('LAB_USE', 0)
         self.max_depth = session_data.get('AUTO_ENUMERATE_DEPTH', 3)  # Maximum lateral movement depth (configurable)
@@ -57,7 +47,6 @@ class AutoEnumerator:
         self.loghunter = None
         self.moonwalk = WindowsMoonwalk(console, session_data)
         self.use_moonwalk = True  # Enable moonwalk at all stages
-<<<<<<< HEAD
         # Initialize PE5 utils if available
         try:
             from modules.pe5_utils import PE5Utils
@@ -70,8 +59,6 @@ class AutoEnumerator:
         # Initialize PE5 status in enumeration data
         self.enumeration_data['privilege_escalation'] = {}
         self.enumeration_data['pe5_status'] = 'available' if self.pe5_module else 'unavailable'
-=======
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
     
     def run_full_enumeration(self) -> Dict[str, Any]:
         """Run complete enumeration across all modules"""
@@ -497,7 +484,6 @@ class AutoEnumerator:
         remote_data = {
             'target': target,
             'depth': depth,
-<<<<<<< HEAD
             'timestamp': datetime.now().isoformat(),
             'foothold': {'target': target, 'method': 'auto'},
             'identity': {},
@@ -505,12 +491,6 @@ class AutoEnumerator:
             'system_info': {},
             'shares': [],
             'lolbins_used': []
-=======
-            'identity': {},
-            'network': {},
-            'system_info': {},
-            'shares': []
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         }
         
         try:
@@ -821,7 +801,6 @@ class AutoEnumerator:
         except Exception as e:
             self.enumeration_data['moonwalk'] = {'error': str(e)}
             progress.update(task, advance=100)
-<<<<<<< HEAD
     
     def _enumerate_vlan_bypass(self, progress, task):
         """Enumerate VLAN bypass techniques"""
@@ -905,8 +884,6 @@ class AutoEnumerator:
             self.console.print(f"[red]Error generating reports: {e}[/red]")
             if progress and task:
                 progress.update(task, advance=100)
-=======
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
 
 
 class ReportGenerator:
@@ -1291,10 +1268,7 @@ class AutoEnumerateModule:
                     f.write(html_report)
                 console.print(f"[green]HTML report saved:[/green] {filename}")
         
-<<<<<<< HEAD
         # Export DiagramGenerator and ReportGenerator for testing
         # These are accessible via: from modules.auto_enumerate import DiagramGenerator, ReportGenerator
         
-=======
->>>>>>> origin/cursor/tui-for-windows-lateral-movement-simulation-composer-1-e45e
         console.print("\n[green]Enumeration complete![/green]")
