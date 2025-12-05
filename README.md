@@ -22,7 +22,7 @@ run.bat
 ./run.sh
 ```
 
-**Over SSH (Recommended):**
+**Over SSH (Recommended - Tool Designed for SSH Control):**
 ```bash
 # SSH into target system
 ssh user@target-host
@@ -31,7 +31,10 @@ ssh user@target-host
 python main.py
 
 # Rich TUI works perfectly over SSH - all features available
+# All commands execute on the remote system automatically
 ```
+
+**Note:** This tool is designed to be controlled entirely over SSH. Rich TUI works perfectly in SSH terminals, and all features are available when accessing remotely.
 
 **Cross-Platform Setup (Prepare on Linux, Deploy to Windows):**
 ```bash
@@ -69,12 +72,12 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 - **Tactical Guidance**: Context-aware help and guidance
 - **Reference Database**: LOLBins, techniques, and procedures
 
-### 12 Integrated Modules
+### 15 Integrated Modules
 
 1. **Foothold & Starting Point** - Initial access and establishment
 2. **Local Orientation** - System reconnaissance and discovery
 3. **Identity Acquisition** - Credential harvesting and token manipulation
-4. **Lateral Movement Channels** - Network pivoting and movement
+4. **Lateral Movement Channels** - Network pivoting and movement (includes Network Visualization)
 5. **Consolidation & Dominance** - Persistence and control establishment
 6. **OPSEC Considerations** - Operational security and evasion
 7. **LLM Remote Agent** - Self-coding execution agent with custom protocol
@@ -83,9 +86,17 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed quick start guide.
 10. **LogHunter Integration** - Windows event log analysis and hunting
 11. **Windows Moonwalk** - Advanced log clearing with fake entry injection
 12. **[PRIMARY] PE5 SYSTEM Escalation** - Kernel-level privilege escalation
+13. **Credential Manager** - Persistent credential storage & management
+14. **VLAN Bypass** - Network segmentation bypass techniques
+15. **SSH Session Management** - Remote command execution over SSH
 
 ### Advanced Features
 
+- **SSH-Compatible**: Designed to be controlled entirely over SSH - Rich TUI works perfectly
+- **Credential Replay**: Automatic credential usage in lateral movement and auto-enumeration
+- **Network Visualization**: Interactive network mapping, host discovery, and path visualization
+- **Multi-Hop Proxy Chains**: SOCKS5/HTTP/SSH proxy chain support for advanced pivoting
+- **Persistent Credential Storage**: Centralized credential management with export capabilities
 - **Auto-Enumeration Mode**: Automated comprehensive enumeration with lateral movement
 - **Diagram Generation**: Automatic Mermaid diagram generation for MITRE ATT&CK flows, network topologies, and attack timelines
 - **Organized Report Storage**: All enumeration data stored in `enumeration_reports/` sorted by date and machine+time
@@ -311,15 +322,21 @@ Credential harvesting and identity manipulation.
 
 ### 4. Lateral Movement Channels
 
-Network pivoting and lateral movement techniques.
+Network pivoting and lateral movement techniques with credential replay.
 
 **Features:**
-- SMB/WinRM movement
-- RDP tunneling
-- SSH pivoting
-- Custom protocols
+- SMB/RPC-based movement (with automatic credential replay)
+- WinRM / PowerShell Remoting (with credential replay)
+- WMI-based Execution (with credential replay)
+- RDP-based Pivoting (with credential replay)
+- DCOM / COM-based Movement (with credential replay)
+- SSH Tunneling & Port Forwarding (with credential replay)
+- **Network Visualization & Exploration** - Interactive network mapping and host discovery
+- APT-41 Custom Tools & Techniques
 
 **TTPs:** T1021, T1072, T1105, T1570
+
+**Credential Replay:** All lateral movement methods automatically use stored credentials from Credential Manager when available.
 
 ### 5. Consolidation & Dominance
 
@@ -430,6 +447,48 @@ Kernel-level privilege escalation using APT-41 PE5 framework.
 
 See [docs/PE5_Integration.md](docs/PE5_Integration.md) for technical details.
 
+### 13. Credential Manager
+
+Persistent credential storage and management for lateral movement operations.
+
+**Features:**
+- View and search all stored credentials
+- Organize by type, domain, or target
+- Export credentials (CSV, hashcat, secretsdump formats)
+- Test credentials against targets
+- Automatic credential storage from Identity module
+- Integration with all lateral movement modules
+
+**TTPs:** T1078, T1550, T1555
+
+### 14. VLAN Bypass
+
+Network segmentation bypass techniques inspired by APT-41.
+
+**Features:**
+- Default credential attacks on network infrastructure
+- VLAN hopping techniques (802.1Q, DTP, VTP)
+- Recent 2024/2025 CVEs for network device exploitation
+- Layer 2 attack vectors
+- Integration with credential manager
+- Automatic credential storage
+
+**TTPs:** T1599, T1599.001, T1557, T1557.002, T1018, T1046
+
+### 15. SSH Session Management
+
+Manage SSH connections for remote command execution.
+
+**Features:**
+- Create and manage SSH sessions
+- Activate sessions (all commands execute remotely)
+- Use stored credentials automatically
+- Test connections
+- Multiple session support
+- Key-based and password authentication
+
+**Integration:** When an SSH session is active, all commands automatically execute on the remote system.
+
 ## 🌐 Cross-Platform Setup
 
 ### Overview
@@ -493,6 +552,15 @@ Secure relay service for CGNAT scenarios:
 See [docs/remote_guided_relay.md](docs/remote_guided_relay.md) for relay architecture.
 
 ## 📊 Auto-Enumeration & Reporting
+
+### Credential Replay in Auto-Enumeration
+
+The auto-enumeration module automatically uses stored credentials:
+- **Automatic Credential Discovery**: Searches Credential Manager for target-specific credentials
+- **Domain Credential Fallback**: Uses domain credentials if target-specific not found
+- **Credential Testing**: Tests credentials during lateral movement
+- **Credential Tracking**: Records which credentials were used for each target
+- **Credential Marking**: Marks credentials as used after successful connection
 
 ### Diagram Generation
 
@@ -603,6 +671,9 @@ Coverage reports are generated in multiple formats:
 
 ### Core Documentation
 
+- **[SSH_SETUP.md](SSH_SETUP.md)** - SSH setup and usage guide
+- **[docs/SSH_USAGE.md](docs/SSH_USAGE.md)** - Detailed SSH usage documentation
+- **[docs/SSH_COMPATIBILITY.md](docs/SSH_COMPATIBILITY.md)** - SSH compatibility details
 - **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - Quick start guide
 - **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** - Auto-bootstrap process
 - **[docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)** - Cross-platform setup
@@ -630,6 +701,15 @@ Coverage reports are generated in multiple formats:
 - **[docs/Auto_Enumeration_Enhancements.md](docs/Auto_Enumeration_Enhancements.md)** - Diagram generation and report storage
 - **[docs/MADCert_Integration.md](docs/MADCert_Integration.md)** - MADCert integration
 - **[docs/LOLBins_Reference.md](docs/LOLBins_Reference.md)** - LOLBins database
+
+### New Features Documentation
+
+- **Credential Replay**: Automatically uses stored credentials in lateral movement and auto-enumeration
+- **Network Visualization**: Interactive network mapping accessible via Lateral Movement module (option 8)
+- **Credential Manager**: Persistent credential storage accessible via main menu (option 13)
+- **VLAN Bypass**: Network segmentation bypass accessible via main menu (option 14)
+- **SSH Session Management**: Remote command execution accessible via main menu (option 15)
+- **Multi-Hop Proxy Chains**: Proxy chain support via `modules/proxy_chain.py`
 
 ### Installation Guides
 
@@ -767,7 +847,14 @@ See [docs/CHANGELOG.md](docs/CHANGELOG.md) for version history and changes.
 - ✅ **Core Functionality**: Complete
 - ✅ **PE5 Integration**: Complete
 - ✅ **Relay Service**: Complete
-- ✅ **Auto-Enumeration**: Complete
+- ✅ **Auto-Enumeration**: Complete (with credential replay)
+- ✅ **Credential Replay**: Complete (integrated into all lateral movement)
+- ✅ **Network Visualization**: Complete (interactive network mapping)
+- ✅ **Credential Manager**: Complete (persistent storage & management)
+- ✅ **VLAN Bypass**: Complete (network segmentation bypass)
+- ✅ **SSH Compatibility**: Complete (designed for SSH control)
+- ✅ **SSH Session Management**: Complete (remote command execution)
+- ✅ **Multi-Hop Proxy Chains**: Complete (proxy chain support)
 - ✅ **Diagram Generation**: Complete (MITRE ATT&CK flows, network diagrams, timelines)
 - ✅ **Report Organization**: Complete (date/machine+time sorted storage)
 - ✅ **Test Harness**: Complete (end-to-end tests for all modules)
@@ -778,6 +865,13 @@ See [docs/CHANGELOG.md](docs/CHANGELOG.md) for version history and changes.
 
 ### Recent Enhancements
 
+- **SSH Compatibility**: Full SSH support - tool designed to be controlled entirely over SSH
+- **Credential Replay**: Automatic credential usage in lateral movement and auto-enumeration
+- **Network Visualization**: Interactive network mapping, host discovery, and path visualization
+- **Credential Manager**: Persistent credential storage with export and testing capabilities
+- **VLAN Bypass Module**: Network segmentation bypass techniques added to main menu
+- **SSH Session Management**: Remote command execution over SSH with session management
+- **Multi-Hop Proxy Chains**: Advanced proxy chain support for complex pivoting scenarios
 - **Diagram Generation Module**: Automatic Mermaid diagram generation for attack flows, network topologies, and timelines
 - **Organized Report Storage**: Reports automatically organized by date and machine+time in `enumeration_reports/`
 - **Comprehensive Test Suite**: End-to-end test harness with coverage reporting for all modules
