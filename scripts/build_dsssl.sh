@@ -129,7 +129,14 @@ if [ -f "$INSTALL_PREFIX/bin/openssl" ]; then
     chmod +x "$INSTALL_PREFIX/bin/dsssl"
 fi
 
-# Verify installation
+# Verify installation with LD_LIBRARY_PATH
+export LD_LIBRARY_PATH="$INSTALL_PREFIX/lib64:$LD_LIBRARY_PATH"
+if "$INSTALL_PREFIX/bin/openssl" version > /dev/null 2>&1; then
+    echo "✓ DSSSL installation verified"
+    "$INSTALL_PREFIX/bin/openssl" version
+else
+    echo "⚠ Warning: DSSSL binary may need LD_LIBRARY_PATH set to $INSTALL_PREFIX/lib64"
+fi
 echo ""
 echo "Verifying installation..."
 if [ -f "$INSTALL_PREFIX/bin/dsssl" ] || [ -f "$INSTALL_PREFIX/bin/openssl" ]; then
