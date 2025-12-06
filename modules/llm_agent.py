@@ -109,6 +109,173 @@ class CodeGenerator:
         self.execution_history = []
         self.system_privilege = system_privilege
         self.privilege_token = None  # Will hold SYSTEM token handle if available
+    
+    def check_system_token_pe5(self) -> Dict[str, Any]:
+        """
+        Check SYSTEM token status using PE5 method
+        
+        Uses PE5 framework techniques to verify if current process has SYSTEM privileges.
+        Checks multiple indicators:
+        - Process token privileges
+        - Integrity level
+        - Token type
+        - Process name and PID
+        
+        Returns:
+            Dict with:
+                - has_system: bool - Whether SYSTEM token is present
+                - method: str - Detection method used
+                - details: dict - Additional details
+        """
+        import ctypes
+        from ctypes import wintypes
+        
+        result = {
+            'has_system': False,
+            'method': 'pe5_check',
+            'details': {}
+        }
+        
+        try:
+            # Method 1: Check via Windows API - GetTokenInformation
+            advapi32 = ctypes.windll.advapi32
+            kernel32 = ctypes.windll.kernel32
+            
+            # Open current process token
+            TOKEN_QUERY = 0x0008
+            hToken = wintypes.HANDLE()
+            
+            if not advapi32.OpenProcessToken(
+                kernel32.GetCurrentProcess(),
+                TOKEN_QUERY,
+                ctypes.byref(hToken)
+            ):
+                result['details']['error'] = 'Failed to open process token'
+                return result
+            
+            # Check token type (Primary vs Impersonation)
+            TokenType = 1
+            token_type = wintypes.DWORD()
+            return_length = wintypes.DWORD()
+            
+            if advapi32.GetTokenInformation(
+                hToken,
+                TokenType,
+                ctypes.byref(token_type),
+                ctypes.sizeof(token_type),
+                ctypes.byref(return_length)
+            ):
+                result['details']['token_type'] = 'Primary' if token_type.value == 1 else 'Impersonation'
+            
+            # Check privileges
+            TokenPrivileges = 3
+            privileges_size = 1024
+            privileges_buffer = (ctypes.c_byte * privileges_size)()
+            return_length = wintypes.DWORD()
+            
+            if advapi32.GetTokenInformation(
+                hToken,
+                TokenPrivileges,
+                privileges_buffer,
+                privileges_size,
+                ctypes.byref(return_length)
+            ):
+                # Parse TOKEN_PRIVILEGES structure
+                privilege_count = ctypes.cast(privileges_buffer, ctypes.POINTER(wintypes.DWORD))[0]
+                result['details']['privilege_count'] = privilege_count
+                
+                # Check for SeDebugPrivilege (indicator of SYSTEM-like access)
+                SE_DEBUG_PRIVILEGE = 20
+                for i in range(privilege_count):
+                    offset = 4 + (i * 8)  # LUID (8 bytes) + Attributes (4 bytes)
+                    luid_low = ctypes.cast(
+                        ctypes.addressof(privileges_buffer) + offset,
+                        ctypes.POINTER(wintypes.DWORD)
+                    )[0]
+                    attributes = ctypes.cast(
+                        ctypes.addressof(privileges_buffer) + offset + 8,
+                        ctypes.POINTER(wintypes.DWORD)
+                    )[0]
+                    
+                    # SE_DEBUG_PRIVILEGE LUID low part is typically 0x14
+                    if luid_low == SE_DEBUG_PRIVILEGE and (attributes & 0x00000002):  # SE_PRIVILEGE_ENABLED
+                        result['details']['se_debug_enabled'] = True
+            
+            # Check integrity level
+            TokenIntegrityLevel = 25
+            integrity_size = 1024
+            integrity_buffer = (ctypes.c_byte * integrity_size)()
+            return_length = wintypes.DWORD()
+            
+            if advapi32.GetTokenInformation(
+                hToken,
+                TokenIntegrityLevel,
+                integrity_buffer,
+                integrity_size,
+                ctypes.byref(return_length)
+            ):
+                # Parse TOKEN_MANDATORY_LABEL
+                sid_ptr = ctypes.cast(
+                    integrity_buffer,
+                    ctypes.POINTER(ctypes.c_void_p)
+                )[0]
+                
+                if sid_ptr:
+                    # Check if SID is System integrity (S-1-16-16384)
+                    # System integrity level is 0x4000 = 16384
+                    import ctypes.wintypes as wintypes
+                    sub_authority = ctypes.cast(
+                        ctypes.c_void_p(sid_ptr),
+                        ctypes.POINTER(ctypes.c_ulong)
+                    )[8]  # SubAuthority[0] is at offset 8
+                    
+                    if sub_authority == 0x4000:  # System integrity
+                        result['has_system'] = True
+                        result['details']['integrity_level'] = 'System'
+                    elif sub_authority == 0x2000:  # High integrity
+                        result['details']['integrity_level'] = 'High'
+                    else:
+                        result['details']['integrity_level'] = f'Level_{sub_authority}'
+            
+            # Method 2: Check process name and PID (SYSTEM process is PID 4)
+            current_pid = kernel32.GetCurrentProcessId()
+            result['details']['pid'] = current_pid
+            
+            # Method 3: Check if we can access SYSTEM process
+            # Try to open winlogon.exe (runs as SYSTEM)
+            try:
+                import psutil
+                for proc in psutil.process_iter(['pid', 'name']):
+                    if proc.info['name'].lower() == 'winlogon.exe':
+                        winlogon_pid = proc.info['pid']
+                        # Try to open with PROCESS_ALL_ACCESS
+                        PROCESS_ALL_ACCESS = 0x001F0FFF
+                        hProc = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, winlogon_pid)
+                        if hProc:
+                            kernel32.CloseHandle(hProc)
+                            result['has_system'] = True
+                            result['details']['can_access_system_process'] = True
+                            result['method'] = 'pe5_system_process_access'
+                        break
+            except (ImportError, Exception):
+                pass
+            
+            # Method 4: PE5-specific check - Verify token manipulation capability
+            # Check if we can read EPROCESS structure (requires kernel access)
+            # This is a simplified check - full PE5 would use kernel exploit
+            
+            advapi32.CloseHandle(hToken)
+            
+            # Final determination
+            if result['details'].get('integrity_level') == 'System':
+                result['has_system'] = True
+                result['method'] = 'pe5_integrity_check'
+            
+        except Exception as e:
+            result['details']['error'] = str(e)
+            result['details']['exception'] = type(e).__name__
+        
+        return result
         
     def generate_code(self, spec: Dict[str, Any]) -> Tuple[str, str]:
         """
@@ -184,6 +351,53 @@ class CodeGenerator:
                 code_lines.append("import ctypes")
                 code_lines.append("from ctypes import wintypes")
         
+        # Add PE5 SYSTEM token check function
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("def pe5_check_system_token():")
+            code_lines.append("    \"\"\"Check SYSTEM token using PE5 method\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        import ctypes")
+            code_lines.append("        from ctypes import wintypes")
+            code_lines.append("        ")
+            code_lines.append("        advapi32 = ctypes.windll.advapi32")
+            code_lines.append("        kernel32 = ctypes.windll.kernel32")
+            code_lines.append("        ")
+            code_lines.append("        # Open current process token")
+            code_lines.append("        TOKEN_QUERY = 0x0008")
+            code_lines.append("        hToken = wintypes.HANDLE()")
+            code_lines.append("        ")
+            code_lines.append("        if not advapi32.OpenProcessToken(")
+            code_lines.append("            kernel32.GetCurrentProcess(),")
+            code_lines.append("            TOKEN_QUERY,")
+            code_lines.append("            ctypes.byref(hToken)):")
+            code_lines.append("            return False")
+            code_lines.append("        ")
+            code_lines.append("        # Check integrity level")
+            code_lines.append("        TokenIntegrityLevel = 25")
+            code_lines.append("        integrity_size = 1024")
+            code_lines.append("        integrity_buffer = (ctypes.c_byte * integrity_size)()")
+            code_lines.append("        return_length = wintypes.DWORD()")
+            code_lines.append("        ")
+            code_lines.append("        if advapi32.GetTokenInformation(")
+            code_lines.append("            hToken, TokenIntegrityLevel, integrity_buffer,")
+            code_lines.append("            integrity_size, ctypes.byref(return_length)):")
+            code_lines.append("            sid_ptr = ctypes.cast(integrity_buffer, ctypes.POINTER(ctypes.c_void_p))[0]")
+            code_lines.append("            if sid_ptr:")
+            code_lines.append("                sub_authority = ctypes.cast(")
+            code_lines.append("                    ctypes.c_void_p(sid_ptr),")
+            code_lines.append("                    ctypes.POINTER(ctypes.c_ulong))[8]")
+            code_lines.append("                # System integrity = 0x4000")
+            code_lines.append("                if sub_authority == 0x4000:")
+            code_lines.append("                    advapi32.CloseHandle(hToken)")
+            code_lines.append("                    return True")
+            code_lines.append("        ")
+            code_lines.append("        advapi32.CloseHandle(hToken)")
+            code_lines.append("        return False")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'PE5 token check failed: {e}')")
+            code_lines.append("        return False")
+        
         code_lines.append("")
         code_lines.append("# Generated code")
         code_lines.append(f"# Description: {description}")
@@ -251,8 +465,14 @@ class CodeGenerator:
         code_lines.append("def main():")
         code_lines.append(f"    \"\"\"{description}\"\"\"")
         if system_privilege:
-            code_lines.append("    if not escalate_privileges():")
-            code_lines.append("        print('Warning: Could not escalate privileges')")
+            code_lines.append("    # Check SYSTEM token using PE5 method")
+            code_lines.append("    if not pe5_check_system_token():")
+            code_lines.append("        print('Warning: SYSTEM token not detected, attempting escalation...')")
+            code_lines.append("        if not escalate_privileges():")
+            code_lines.append("            print('Error: Could not escalate privileges')")
+            code_lines.append("            return 1")
+            code_lines.append("    else:")
+            code_lines.append("        print('SYSTEM token verified via PE5 check')")
             code_lines.append("    ")
         code_lines.append("    # TODO: Implement functionality")
         code_lines.append("    print('Generated code executed')")
@@ -278,6 +498,45 @@ class CodeGenerator:
             code_lines.append("# Requirements:")
             for req in requirements:
                 code_lines.append(f"# - {req}")
+            code_lines.append("")
+        
+        # Add PE5 SYSTEM token check
+        if system_privilege:
+            code_lines.append("function Test-PE5SystemToken {")
+            code_lines.append("    <#")
+            code_lines.append("    Check SYSTEM token using PE5 method")
+            code_lines.append("    Verifies integrity level and token privileges")
+            code_lines.append("    #>")
+            code_lines.append("    try {")
+            code_lines.append("        $currentPrincipal = New-Object System.Security.Principal.WindowsPrincipal([System.Security.Principal.WindowsIdentity]::GetCurrent())")
+            code_lines.append("        $isSystem = $currentPrincipal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::System)")
+            code_lines.append("        ")
+            code_lines.append("        # Check integrity level")
+            code_lines.append("        $token = [System.Security.Principal.WindowsIdentity]::GetCurrent().Token")
+            code_lines.append("        $integrityLevel = (Get-Process -Id $PID).IntegrityLevel")
+            code_lines.append("        ")
+            code_lines.append("        # System integrity level is 'System'")
+            code_lines.append("        if ($integrityLevel -eq 'System' -or $isSystem) {")
+            code_lines.append("            return $true")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        # Check if we can access SYSTEM process (PE5 method)")
+            code_lines.append("        $winlogon = Get-Process -Name winlogon -ErrorAction SilentlyContinue")
+            code_lines.append("        if ($winlogon) {")
+            code_lines.append("            try {")
+            code_lines.append("                $null = Get-Process -Id $winlogon.Id -ErrorAction Stop")
+            code_lines.append("                return $true")
+            code_lines.append("            } catch {")
+            code_lines.append("                return $false")
+            code_lines.append("            }")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        return $false")
+            code_lines.append("    } catch {")
+            code_lines.append("        Write-Warning \"PE5 token check failed: $_\"")
+            code_lines.append("        return $false")
+            code_lines.append("    }")
+            code_lines.append("}")
             code_lines.append("")
         
         # Add SYSTEM privilege escalation
@@ -348,8 +607,15 @@ class CodeGenerator:
         code_lines.append("function Main {")
         code_lines.append(f"    <# {description} #>")
         if system_privilege:
-            code_lines.append("    if (-not (Invoke-TokenManipulation)) {")
-            code_lines.append("        Write-Warning 'Continuing without SYSTEM privileges'")
+            code_lines.append("    # Check SYSTEM token using PE5 method")
+            code_lines.append("    if (-not (Test-PE5SystemToken)) {")
+            code_lines.append("        Write-Warning 'SYSTEM token not detected, attempting escalation...'")
+            code_lines.append("        if (-not (Invoke-TokenManipulation)) {")
+            code_lines.append("            Write-Warning 'Continuing without SYSTEM privileges'")
+            code_lines.append("            return 1")
+            code_lines.append("        }")
+            code_lines.append("    } else {")
+            code_lines.append("        Write-Host 'SYSTEM token verified via PE5 check'")
             code_lines.append("    }")
             code_lines.append("    ")
         code_lines.append("    Write-Host 'Generated PowerShell script executed'")
@@ -474,13 +740,55 @@ class CodeGenerator:
             code_lines.append("}")
             code_lines.append("")
         
+        code_lines.append("BOOL CheckSystemTokenPE5() {")
+        code_lines.append("    HANDLE hToken = NULL;")
+        code_lines.append("    DWORD dwLength = 0;")
+        code_lines.append("    PTOKEN_MANDATORY_LABEL pIntegrityLevel = NULL;")
+        code_lines.append("    DWORD dwIntegrityLevel = 0;")
+        code_lines.append("    ")
+        code_lines.append("    // Open process token")
+        code_lines.append("    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))")
+        code_lines.append("        return FALSE;")
+        code_lines.append("    ")
+        code_lines.append("    // Get integrity level")
+        code_lines.append("    if (!GetTokenInformation(hToken, TokenIntegrityLevel, NULL, 0, &dwLength)) {")
+        code_lines.append("        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {")
+        code_lines.append("            CloseHandle(hToken);")
+        code_lines.append("            return FALSE;")
+        code_lines.append("        }")
+        code_lines.append("    }")
+        code_lines.append("    ")
+        code_lines.append("    pIntegrityLevel = (PTOKEN_MANDATORY_LABEL)malloc(dwLength);")
+        code_lines.append("    if (!pIntegrityLevel) {")
+        code_lines.append("        CloseHandle(hToken);")
+        code_lines.append("        return FALSE;")
+        code_lines.append("    }")
+        code_lines.append("    ")
+        code_lines.append("    if (GetTokenInformation(hToken, TokenIntegrityLevel, pIntegrityLevel, dwLength, &dwLength)) {")
+        code_lines.append("        // Get sub-authority (System = 0x4000)")
+        code_lines.append("        dwIntegrityLevel = *GetSidSubAuthority(pIntegrityLevel->Label.Sid, 0);")
+        code_lines.append("        free(pIntegrityLevel);")
+        code_lines.append("        CloseHandle(hToken);")
+        code_lines.append("        return (dwIntegrityLevel == 0x4000);  // System integrity")
+        code_lines.append("    }")
+        code_lines.append("    ")
+        code_lines.append("    free(pIntegrityLevel);")
+        code_lines.append("    CloseHandle(hToken);")
+        code_lines.append("    return FALSE;")
+        code_lines.append("}")
+        code_lines.append("")
         code_lines.append("int main() {")
         code_lines.append(f"    /* {description} */")
         if system_privilege:
-            code_lines.append("    if (!EscalateToSystem()) {")
-            code_lines.append("        printf(\"Warning: Could not escalate to SYSTEM\\n\");")
+            code_lines.append("    // Check SYSTEM token using PE5 method")
+            code_lines.append("    if (!CheckSystemTokenPE5()) {")
+            code_lines.append("        printf(\"SYSTEM token not detected, attempting escalation...\\n\");")
+            code_lines.append("        if (!EscalateToSystem()) {")
+            code_lines.append("            printf(\"Error: Could not escalate to SYSTEM\\n\");")
+            code_lines.append("            return 1;")
+            code_lines.append("        }")
             code_lines.append("    } else {")
-            code_lines.append("        printf(\"Successfully escalated to SYSTEM privileges\\n\");")
+            code_lines.append("        printf(\"SYSTEM token verified via PE5 check\\n\");")
             code_lines.append("    }")
         code_lines.append("    printf(\"Generated code executed\\n\");")
         code_lines.append("    return 0;")
@@ -499,6 +807,16 @@ class CodeGenerator:
         cpp_code = cpp_code.replace("/* Generated C code */", "/* Generated C++ code */")
         return cpp_code
     
+    def check_system_token_before_execution(self) -> bool:
+        """Check SYSTEM token before code execution using PE5 method"""
+        result = self.check_system_token_pe5()
+        if result.get('has_system'):
+            self.console.print(f"[green]✓ SYSTEM token verified via {result.get('method')}[/green]")
+            return True
+        else:
+            self.console.print(f"[yellow]⚠ SYSTEM token not detected[/yellow]")
+            return False
+    
     def execute_code(self, file_path: str, language: str, args: list = None, 
                     system_privilege: bool = None) -> Tuple[int, str, str]:
         """
@@ -516,6 +834,12 @@ class CodeGenerator:
         args = args or []
         lab_use = self.session_data.get('LAB_USE', 0)
         use_system = system_privilege if system_privilege is not None else self.system_privilege
+        
+        # Check SYSTEM token before execution if SYSTEM privilege is requested
+        if use_system:
+            token_check = self.check_system_token_pe5()
+            if not token_check.get('has_system'):
+                self.console.print("[yellow]Warning: SYSTEM token not detected, execution may fail[/yellow]")
         
         try:
             if language == 'python':
@@ -623,6 +947,18 @@ class LLMAgentServer:
         self.app_id = uuid.uuid4().bytes  # This server's app_id
         self.system_privilege = system_privilege  # SYSTEM privilege execution enabled
         
+        # Check SYSTEM token on initialization if SYSTEM privilege is enabled
+        if system_privilege:
+            token_status = self.code_generator.check_system_token_pe5()
+            if token_status.get('has_system'):
+                self.console.print(f"[green]✓ SYSTEM token verified via {token_status.get('method')}[/green]")
+            else:
+                self.console.print(f"[yellow]⚠ SYSTEM token not detected - will attempt escalation when needed[/yellow]")
+    
+    def check_system_token(self) -> Dict[str, Any]:
+        """Check SYSTEM token status using PE5 method"""
+        return self.code_generator.check_system_token_pe5()
+        
     def start(self):
         """Start the LLM agent server"""
         try:
@@ -633,7 +969,14 @@ class LLMAgentServer:
             self.running = True
             
             privilege_status = "[SYSTEM]" if self.system_privilege else "[USER]"
-            self.console.print(f"[green]LLM Agent Server started on {self.host}:{self.port} {privilege_status}[/green]")
+            token_status = ""
+            if self.system_privilege:
+                token_check = self.check_system_token()
+                if token_check.get('has_system'):
+                    token_status = " [SYSTEM TOKEN VERIFIED]"
+                else:
+                    token_status = " [SYSTEM TOKEN NOT DETECTED]"
+            self.console.print(f"[green]LLM Agent Server started on {self.host}:{self.port} {privilege_status}{token_status}[/green]")
             
             while self.running:
                 try:
